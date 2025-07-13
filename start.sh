@@ -160,7 +160,7 @@ run_crawler() {
     echo "🔍 Starting Foscam Directory Crawler..."
     echo "This will process all existing foscam files with AI analysis."
     echo ""
-    python foscam_crawler.py
+    python src/foscam_crawler.py
 }
 
 # Function to run monitor
@@ -168,7 +168,7 @@ run_monitor() {
     echo "👁️  Starting Foscam File Monitor..."
     echo "This will watch for new files and process them in real-time."
     echo ""
-    python file_monitor.py
+    python src/file_monitor.py
 }
 
 # Function to run web dashboard
@@ -176,7 +176,7 @@ run_web() {
     echo "🌐 Starting Web Dashboard..."
     echo "Access the dashboard at: http://localhost:8000"
     echo ""
-    python web_app.py
+    python src/web_app.py
 }
 
 # Execute based on mode
@@ -195,13 +195,13 @@ elif [ "$CRAWLER_MODE" = true ]; then
         # Start monitor and web in background if requested
         if [ "$MONITOR_MODE" = true ]; then
             echo "Starting file monitor in background..."
-            python file_monitor.py &
+            python src/file_monitor.py &
             MONITOR_PID=$!
         fi
         
         if [ "$WEB_MODE" = true ]; then
             echo "Starting web dashboard..."
-            python web_app.py &
+            python src/web_app.py &
             WEB_PID=$!
         fi
         

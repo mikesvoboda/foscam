@@ -1,0 +1,46 @@
+<!-- Camera Filter Component -->
+<div class="filter-controls">
+    <div class="filter-section">
+        <h3>Time Range</h3>
+        
+        <div class="time-nav">
+            <label for="startDate">Start Date:</label>
+            <input type="date" id="startDate" class="datetime-input">
+            
+            <label for="endDate">End Date:</label>
+            <input type="date" id="endDate" class="datetime-input">
+            
+            <button onclick="searchByDate()" class="search-btn">Search</button>
+        </div>
+        
+        <!-- Quick Time Filters -->
+        <div class="quick-filters">
+            <button class="quick-filter-btn" data-timeframe="24h" onclick="setQuickFilter('24h')">Last 24 Hours</button>
+            <button class="quick-filter-btn" data-timeframe="7d" onclick="setQuickFilter('7d')">Last 7 Days</button>
+            <button class="quick-filter-btn" data-timeframe="30d" onclick="setQuickFilter('30d')">Last 30 Days</button>
+            <button class="quick-filter-btn" data-timeframe="90d" onclick="setQuickFilter('90d')">Last 90 Days</button>
+        </div>
+    </div>
+    
+    <div class="camera-filter-section">
+        <h3>Camera Filter</h3>
+        
+        <div class="camera-filter-controls">
+            <select id="cameraSelect" class="camera-select">
+                <!-- Camera options will be populated dynamically -->
+            </select>
+            
+            <div class="filter-buttons">
+                <button onclick="applyFilters()" class="apply-btn">Apply Filters</button>
+                <button onclick="clearFilters()" class="clear-btn">Clear All</button>
+                <button onclick="selectAllCameras()" class="apply-btn">Select All</button>
+                <button onclick="deselectAllCameras()" class="clear-btn">Deselect All</button>
+            </div>
+        </div>
+        
+        <!-- Selected Cameras Display -->
+        <div id="selectedCameras" class="selected-cameras">
+            <div class="selected-cameras-label">All cameras selected</div>
+        </div>
+    </div>
+</div> 

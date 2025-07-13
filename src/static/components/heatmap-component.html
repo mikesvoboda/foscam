@@ -1,0 +1,91 @@
+<!-- Enhanced Activity Heatmap Component -->
+<div class="heatmap-container">
+    <div class="heatmap-header">
+        <h3>Enhanced Activity Heatmap</h3>
+        
+        <!-- Enhanced Heatmap Controls -->
+        <div class="heatmap-controls">
+            <div class="view-toggle">
+                <button id="dailyViewBtn" class="view-btn active" onclick="switchToDaily()">30-Day View</button>
+                <button id="hourlyViewBtn" class="view-btn" onclick="switchToHourly()">24-Hour View</button>
+            </div>
+            
+            <div class="camera-breakdown">
+                <label class="toggle-label">
+                    <input type="checkbox" id="perCameraToggle" onchange="toggleCameraBreakdown()">
+                    <span class="toggle-text">Per Camera</span>
+                </label>
+            </div>
+        </div>
+        
+        <!-- Heatmap Statistics -->
+        <div class="heatmap-stats">
+            <div class="stat-item">
+                <span id="totalActivity" class="stat-number">0</span>
+                <span id="totalActivityLabel" class="stat-label">detections in the last 30 days</span>
+            </div>
+            <div class="stat-item">
+                <span id="peakActivity" class="stat-number">0</span>
+                <span class="stat-label">peak activity on</span>
+                <span id="peakDate" class="stat-date">-</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Camera Legends (shown when per-camera is enabled) -->
+    <div id="cameraLegends" class="camera-legends" style="display: none;">
+        <!-- Camera legends will be populated dynamically -->
+    </div>
+    
+    <!-- Daily Heatmap (30-day calendar view) -->
+    <div id="dailyHeatmap" class="calendar-heatmap">
+        <div id="monthLabels" class="month-labels">
+            <!-- Month labels will be populated dynamically -->
+        </div>
+        
+        <div class="calendar-grid">
+            <div class="day-labels">
+                <span></span>
+                <span>M</span>
+                <span></span>
+                <span>W</span>
+                <span></span>
+                <span>F</span>
+                <span></span>
+            </div>
+            
+            <div id="dailyHeatmapGrid" class="heatmap-grid">
+                <!-- Daily heatmap squares will be populated dynamically -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- Hourly Heatmap (24-hour grid view) -->
+    <div id="hourlyHeatmap" class="hourly-heatmap" style="display: none;">
+        <div class="hourly-header">
+            <div class="hour-labels">
+                <span>12a</span><span>1a</span><span>2a</span><span>3a</span><span>4a</span><span>5a</span>
+                <span>6a</span><span>7a</span><span>8a</span><span>9a</span><span>10a</span><span>11a</span>
+                <span>12p</span><span>1p</span><span>2p</span><span>3p</span><span>4p</span><span>5p</span>
+                <span>6p</span><span>7p</span><span>8p</span><span>9p</span><span>10p</span><span>11p</span>
+            </div>
+        </div>
+        
+        <div id="hourlyHeatmapGrid" class="hourly-grid">
+            <!-- Hourly heatmap squares will be populated dynamically -->
+        </div>
+    </div>
+    
+    <!-- Heatmap Legend -->
+    <div class="heatmap-legend">
+        <span class="legend-label">Less</span>
+        <div class="legend-squares">
+            <div class="legend-square level-0"></div>
+            <div class="legend-square level-1"></div>
+            <div class="legend-square level-2"></div>
+            <div class="legend-square level-3"></div>
+            <div class="legend-square level-4"></div>
+        </div>
+        <span class="legend-label">More</span>
+    </div>
+</div> 

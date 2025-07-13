@@ -376,10 +376,10 @@ class FoscamMediaProcessor:
             from models import get_or_create_camera, get_alert_flags_from_alerts, extract_motion_detection_type, initialize_alert_types
             
             # Initialize alert types on first run
-            initialize_alert_types(session)
+            await initialize_alert_types(session)
             await session.commit()
             
-            camera = get_or_create_camera(session, location, device_name)
+            camera = await get_or_create_camera(session, location, device_name)
             await session.commit()
             
             # Extract alert information
@@ -476,7 +476,7 @@ class FoscamFileMonitor:
         logger.info("🎥 Starting Foscam File Monitor...")
         
         # Start GPU monitoring
-        await start_gpu_monitoring()
+        start_gpu_monitoring()
         
         # Initialize processor
         await self.processor.initialize()
@@ -547,7 +547,7 @@ class FoscamFileMonitor:
             observer.join()
         
         # Stop GPU monitoring
-        await stop_gpu_monitoring()
+        stop_gpu_monitoring()
         
         logger.info("✅ Foscam file monitor stopped")
 

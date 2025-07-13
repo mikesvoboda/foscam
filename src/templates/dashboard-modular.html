@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Foscam Detection Dashboard</title>
+    
+    <!-- Modular CSS -->
+    <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="stylesheet" href="/static/css/heatmap.css">
+    <link rel="stylesheet" href="/static/css/camera-filter.css">
+</head>
+<body>
+    <div class="header">
+        <h1>🔍 Foscam Detection Dashboard</h1>
+    </div>
+    
+    <div class="container">
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Today</h3>
+                <div id="todayCount" class="value">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>This Week</h3>
+                <div id="weekCount" class="value">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>This Month</h3>
+                <div id="monthCount" class="value">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Total</h3>
+                <div id="totalCount" class="value">0</div>
+            </div>
+        </div>
+        
+        <!-- Enhanced Activity Heatmap -->
+        <div id="heatmapComponent">
+            <!-- This will be loaded from the component file -->
+        </div>
+        
+        <!-- Camera Filter Controls -->
+        <div id="filterComponent">
+            <!-- This will be loaded from the component file -->
+        </div>
+        
+        <!-- Pagination Controls -->
+        <div class="pagination-controls">
+            <div id="paginationInfo" class="pagination-info">
+                Showing 0-0 of 0 detections
+            </div>
+            <div class="pagination-buttons">
+                <button id="prevPage" onclick="previousPage()" disabled>Previous</button>
+                <button id="nextPage" onclick="nextPage()" disabled>Next</button>
+            </div>
+        </div>
+        
+        <!-- Detections Table -->
+        <div class="detections-table">
+            <div class="table-header">
+                Recent Detections
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Camera</th>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Confidence</th>
+                        <th>Media</th>
+                    </tr>
+                </thead>
+                <tbody id="detectionsTableBody">
+                    <!-- Detections will be populated dynamically -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- Modular JavaScript -->
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/heatmap.js"></script>
+    <script src="/static/js/camera-filter.js"></script>
+    <script src="/static/js/main.js"></script>
+    
+    <script>
+        // Load component templates
+        async function loadComponents() {
+            try {
+                // Load heatmap component
+                const heatmapResponse = await fetch('/static/components/heatmap-component.html');
+                const heatmapHTML = await heatmapResponse.text();
+                document.getElementById('heatmapComponent').innerHTML = heatmapHTML;
+                
+                // Load filter component
+                const filterResponse = await fetch('/static/components/camera-filter-component.html');
+                const filterHTML = await filterResponse.text();
+                document.getElementById('filterComponent').innerHTML = filterHTML;
+                
+                console.log('Components loaded successfully');
+            } catch (error) {
+                console.error('Error loading components:', error);
+            }
+        }
+        
+        // Load components before initializing the app
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadComponents();
+            // Main app initialization will happen after components are loaded
+        });
+    </script>
+</body>
+</html> 

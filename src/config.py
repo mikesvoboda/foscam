@@ -13,7 +13,7 @@ UPLOAD_DIR = FOSCAM_DIR  # Keep for backward compatibility
 FOSCAM_DIR.mkdir(exist_ok=True)
 
 # GPU and Model Configuration
-MODEL_NAME = "Salesforce/blip2-t5-xl"  # T5-XL model for enhanced analysis
+MODEL_NAME = "Salesforce/blip2-flan-t5-xl"  # Flan T5-XL model for enhanced analysis
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 2  # Reduced for T5-XL to avoid memory issues
 MAX_LENGTH = 50

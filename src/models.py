@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Float, Boolean, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, DateTime, Text, Float, Boolean, ForeignKey, Index, select
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -195,7 +195,7 @@ class ProcessingStats(Base):
     )
 
 # Database utility functions
-def get_or_create_camera(session, location: str, device_name: str):
+async def get_or_create_camera(session, location: str, device_name: str):
     """Get or create camera record"""
     # Determine device type
     device_type = "Unknown"
@@ -209,10 +209,11 @@ def get_or_create_camera(session, location: str, device_name: str):
     full_name = f"{location}_{device_name}"
     
     # Try to find existing camera
-    camera = session.query(Camera).filter(
+    camera = await session.execute(select(Camera).filter(
         Camera.location == location,
         Camera.device_name == device_name
-    ).first()
+    ))
+    camera = camera.scalar()
     
     if not camera:
         camera = Camera(
@@ -222,14 +223,14 @@ def get_or_create_camera(session, location: str, device_name: str):
             full_name=full_name
         )
         session.add(camera)
-        session.flush()  # Get the ID
+        await session.flush()  # Get the ID
     else:
         # Update last seen
         camera.last_seen = datetime.utcnow()
     
     return camera
 
-def initialize_alert_types(session):
+async def initialize_alert_types(session):
     """Initialize standard alert types"""
     standard_alerts = [
         ("PERSON_DETECTED", "Person detected in scene", 2),
@@ -243,7 +244,8 @@ def initialize_alert_types(session):
     ]
     
     for name, description, priority in standard_alerts:
-        existing = session.query(AlertType).filter(AlertType.name == name).first()
+        existing = await session.execute(select(AlertType).filter(AlertType.name == name))
+        existing = existing.scalar()
         if not existing:
             alert_type = AlertType(
                 name=name,
