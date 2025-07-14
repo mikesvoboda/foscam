@@ -14,17 +14,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select
 
-from config import (
+from src.config import (
     FOSCAM_DIR, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, DATABASE_URL,
     CAMERA_LOCATIONS, FOSCAM_DEVICE_PATTERNS, FOSCAM_IMAGE_PATTERNS,
     FOSCAM_VIDEO_PATTERNS, FOSCAM_DATETIME_PATTERNS, MODEL_NAME, DEVICE,
     VIDEO_SAMPLE_RATE, AI_ANALYSIS_LOG_LEVEL
 )
-from models import Base, Detection
-from ai_model import VisionLanguageModel
+from src.models import Base, Detection
+from src.ai_model import VisionLanguageModel
 
 # Import GPU monitoring
-from gpu_monitor import start_gpu_monitoring, stop_gpu_monitoring, log_gpu_status
+from src.gpu_monitor import gpu_monitor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ class FoscamCrawler:
         logger.info("Initializing Foscam Crawler...")
         
         # Start GPU monitoring
-        start_gpu_monitoring()
+        gpu_monitor.start_monitoring()
         
         # Initialize database
         async with create_async_engine(DATABASE_URL, echo=False).begin() as conn:
@@ -191,7 +191,7 @@ class FoscamCrawler:
             if media_type == "image":
                 result = self.model.process_image(file_path)
             else:  # video
-                result = self.model.process_video(file_path, VIDEO_SAMPLE_RATE)
+                result = await self.model.process_video(file_path, VIDEO_SAMPLE_RATE)
             
             if result["success"]:
                 # Save to database
@@ -248,7 +248,7 @@ class FoscamCrawler:
                 device_name = camera_name
             
             # Get or create camera
-            from models import get_or_create_camera, get_alert_flags_from_alerts, extract_motion_detection_type, initialize_alert_types
+            from src.models import get_or_create_camera, get_alert_flags_from_alerts, extract_motion_detection_type, initialize_alert_types
             
             # Initialize alert types on first run
             await initialize_alert_types(session)
@@ -279,6 +279,8 @@ class FoscamCrawler:
                 height=result.get("height", 0),
                 frame_count=result.get("frame_count"),
                 duration=result.get("duration"),
+                # Thumbnail path for video previews
+                thumbnail_path=result.get("thumbnail_path"),
                 # Alert flags for fast filtering
                 **alert_flags
             )
@@ -377,7 +379,7 @@ class FoscamCrawler:
     
     async def cleanup(self):
         """Cleanup resources."""
-        stop_gpu_monitoring()
+        gpu_monitor.stop_monitoring()
         logger.info("Crawler cleanup complete")
 
 async def main():

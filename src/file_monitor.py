@@ -175,7 +175,7 @@ class FoscamMediaProcessor:
                 result = self.model.process_image(file_path)
             elif suffix in VIDEO_EXTENSIONS:
                 media_type = "video"
-                result = self.model.process_video(file_path, VIDEO_SAMPLE_RATE)
+                result = await self.model.process_video(file_path, VIDEO_SAMPLE_RATE)
             else:
                 logger.warning(f"Unknown file type: {file_path}")
                 return
@@ -404,6 +404,8 @@ class FoscamMediaProcessor:
                 height=result.get("height", 0),
                 frame_count=result.get("frame_count"),
                 duration=result.get("duration"),
+                # Thumbnail path for video previews
+                thumbnail_path=result.get("thumbnail_path"),
                 # Alert flags for fast filtering
                 **alert_flags
             )

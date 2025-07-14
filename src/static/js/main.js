@@ -136,25 +136,56 @@ class MainApp {
         // Create card-based layout
         container.innerHTML = detections.map(detection => {
             const timestamp = this.formatTimestamp(detection.timestamp);
+            const fileTimestamp = detection.file_timestamp ? this.formatTimestamp(detection.file_timestamp) : 'N/A';
             const mediaContent = this.formatMediaCell(detection);
             
             // Extract filename from media_filename path
             const filename = detection.media_filename ? 
                 detection.media_filename.split('/').pop() : 'No filename';
             
+            // Format alert flags
+            const alertFlags = this.formatAlertFlags(detection);
+            
+            // Format media info
+            const mediaInfo = this.formatMediaInfo(detection);
+            
+            // Format processing info
+            const processingInfo = this.formatProcessingInfo(detection);
+            
             return `
                 <div class="detection-card">
                     <div class="detection-header">
-                        <div class="detection-timestamp">${timestamp}</div>
-                        <div class="detection-camera">${detection.camera_location}</div>
+                        <div class="detection-timestamp">
+                            <strong>Processed:</strong> ${timestamp}
+                            <br><strong>File Date:</strong> ${fileTimestamp}
+                        </div>
+                        <div class="detection-camera">
+                            <strong>Camera:</strong> ${detection.camera_location}
+                            <br><strong>ID:</strong> ${detection.id}
+                        </div>
                     </div>
                     
                     <div class="detection-filename">
                         📄 ${filename}
+                        <span style="color: #666; font-size: 0.9rem; margin-left: 10px;">
+                            (${detection.media_type.toUpperCase()})
+                        </span>
                     </div>
                     
-                    <div class="detection-description">
-                        ${detection.description || 'No description available'}
+                    <div class="detection-metadata" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; padding: 1rem; background: #f8f9fa; border-radius: 8px;">
+                        <div>
+                            ${processingInfo}
+                        </div>
+                        <div>
+                            ${mediaInfo}
+                        </div>
+                    </div>
+                    
+                    ${alertFlags}
+                    
+                    <div class="detection-description" style="margin: 1rem 0; padding: 1rem; background: #e8f4f8; border-radius: 8px;">
+                        <strong>Description:</strong><br>
+                        ${this.formatTimelineAnalysis(detection.description) || 'No description available'}
                     </div>
                     
                     <div class="detection-media">
@@ -299,6 +330,363 @@ class MainApp {
         setTimeout(() => {
             errorDiv.remove();
         }, 5000);
+    }
+
+    // Format alert flags
+    formatAlertFlags(detection) {
+        const alerts = [];
+        if (detection.has_person) alerts.push('👤 Person');
+        if (detection.has_vehicle) alerts.push('🚗 Vehicle');
+        if (detection.has_package) alerts.push('📦 Package');
+        if (detection.has_unusual_activity) alerts.push('⚠️ Unusual Activity');
+        if (detection.is_night_time) alerts.push('🌙 Night Time');
+        
+        if (alerts.length === 0 && detection.alert_count > 0) {
+            alerts.push(`🔔 ${detection.alert_count} Alert${detection.alert_count !== 1 ? 's' : ''}`);
+        }
+        
+        if (alerts.length === 0) {
+            return '<div style="color: #666; font-style: italic; margin: 1rem 0;">No alerts detected</div>';
+        }
+        
+        return `
+            <div class="detection-alerts" style="margin: 1rem 0; padding: 1rem; background: #fff3cd; border-radius: 8px;">
+                <strong>Alerts (${detection.alert_count || alerts.length}):</strong>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem;">
+                    ${alerts.map(alert => `<span style="background: #ffc107; color: #212529; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.9rem;">${alert}</span>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Format media info
+    formatMediaInfo(detection) {
+        let info = [];
+        
+        if (detection.width && detection.height) {
+            info.push(`📏 <strong>Dimensions:</strong> ${detection.width}×${detection.height}`);
+        }
+        
+        if (detection.duration) {
+            info.push(`⏱️ <strong>Duration:</strong> ${detection.duration.toFixed(1)}s`);
+        }
+        
+        if (detection.frame_count) {
+            info.push(`🎞️ <strong>Frames:</strong> ${detection.frame_count}`);
+        }
+        
+        if (detection.motion_detection_type) {
+            info.push(`🚀 <strong>Motion Type:</strong> ${detection.motion_detection_type}`);
+        }
+        
+        return info.length > 0 ? info.join('<br>') : '<span style="color: #666; font-style: italic;">No media info</span>';
+    }
+    
+    // Format processing info
+    formatProcessingInfo(detection) {
+        let info = [];
+        
+        if (detection.confidence !== null && detection.confidence !== undefined) {
+            const confidencePercent = (detection.confidence * 100).toFixed(1);
+            const confidenceColor = detection.confidence > 0.8 ? '#28a745' : detection.confidence > 0.6 ? '#ffc107' : '#dc3545';
+            info.push(`🎯 <strong>Confidence:</strong> <span style="color: ${confidenceColor}; font-weight: bold;">${confidencePercent}%</span>`);
+        }
+        
+        if (detection.processing_time) {
+            info.push(`⚡ <strong>Processing Time:</strong> ${detection.processing_time.toFixed(3)}s`);
+        }
+        
+        const statusColor = detection.processed ? '#28a745' : '#dc3545';
+        const statusText = detection.processed ? '✅ Processed' : '❌ Not Processed';
+        info.push(`📊 <strong>Status:</strong> <span style="color: ${statusColor}; font-weight: bold;">${statusText}</span>`);
+        
+        return info.length > 0 ? info.join('<br>') : '<span style="color: #666; font-style: italic;">No processing info</span>';
+    }
+
+    // Format timeline analysis for video descriptions
+    formatTimelineAnalysis(description) {
+        if (!description || typeof description !== 'string') {
+            return description;
+        }
+        
+        // Check if this is a timeline-based analysis
+        if (description.includes('TIMELINE ANALYSIS') || description.includes('EVENTS:')) {
+            return this.formatTimelineDescription(description);
+        }
+        
+        // Check for old format repetitive descriptions
+        if (description.includes('VIDEO ANALYSIS') && description.includes('ACTIVITIES:')) {
+            return this.formatLegacyVideoDescription(description);
+        }
+        
+        return description;
+    }
+    
+    // Format new timeline-based descriptions
+    formatTimelineDescription(description) {
+        try {
+            const sections = description.split(' | ');
+            let formatted = '<div class="timeline-analysis">';
+            
+            for (let section of sections) {
+                if (section.startsWith('TIMELINE ANALYSIS')) {
+                    formatted += `<div class="timeline-header"><strong>📅 ${section}</strong></div>`;
+                } else if (section.startsWith('EVENTS:')) {
+                    const eventsText = section.replace('EVENTS:', '').trim();
+                    const events = eventsText.split(' | ');
+                    
+                    formatted += '<div class="timeline-events"><strong>🎬 Timeline Events:</strong>';
+                    formatted += '<div class="timeline-list">';
+                    
+                    for (let event of events) {
+                        if (event.trim()) {
+                            // Extract timestamp and description
+                            const timestampMatch = event.match(/^(\d{2}:\d{2}):\s*(.+)$/);
+                            if (timestampMatch) {
+                                const [, timestamp, eventDesc] = timestampMatch;
+                                formatted += `<div class="timeline-event">
+                                    <span class="timestamp">${timestamp}</span>
+                                    <span class="event-desc">${eventDesc}</span>
+                                </div>`;
+                            } else {
+                                formatted += `<div class="timeline-event"><span class="event-desc">${event}</span></div>`;
+                            }
+                        }
+                    }
+                    formatted += '</div></div>';
+                } else if (section.startsWith('EVENT TYPES:')) {
+                    const eventTypes = section.replace('EVENT TYPES:', '').trim();
+                    formatted += `<div class="event-types"><strong>📋 Event Types:</strong> ${eventTypes}</div>`;
+                } else if (section.startsWith('ALERTS:')) {
+                    const alerts = section.replace('ALERTS:', '').trim();
+                    formatted += `<div class="timeline-alerts"><strong>🔔 Alerts:</strong> ${alerts}</div>`;
+                } else if (section.trim()) {
+                    formatted += `<div class="timeline-section">${section}</div>`;
+                }
+            }
+            
+            formatted += '</div>';
+            
+            // Add timeline-specific CSS
+            if (!document.getElementById('timeline-css')) {
+                const style = document.createElement('style');
+                style.id = 'timeline-css';
+                style.textContent = `
+                    .timeline-analysis {
+                        background: #f8f9fa;
+                        border-radius: 8px;
+                        padding: 1rem;
+                        margin: 0.5rem 0;
+                    }
+                    .timeline-header {
+                        color: #495057;
+                        margin-bottom: 1rem;
+                        font-size: 1.1rem;
+                    }
+                    .timeline-events {
+                        margin: 1rem 0;
+                    }
+                    .timeline-list {
+                        margin-top: 0.5rem;
+                        border-left: 3px solid #007bff;
+                        padding-left: 1rem;
+                    }
+                    .timeline-event {
+                        display: flex;
+                        align-items: flex-start;
+                        margin: 0.5rem 0;
+                        padding: 0.5rem;
+                        background: white;
+                        border-radius: 4px;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }
+                    .timestamp {
+                        background: #007bff;
+                        color: white;
+                        padding: 0.2rem 0.5rem;
+                        border-radius: 4px;
+                        font-family: monospace;
+                        font-weight: bold;
+                        margin-right: 0.5rem;
+                        min-width: 50px;
+                        text-align: center;
+                    }
+                    .event-desc {
+                        flex: 1;
+                        color: #495057;
+                    }
+                    .event-types, .timeline-alerts {
+                        margin: 0.5rem 0;
+                        padding: 0.5rem;
+                        background: #e9ecef;
+                        border-radius: 4px;
+                    }
+                    .timeline-section {
+                        margin: 0.5rem 0;
+                        color: #6c757d;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            
+            return formatted;
+        } catch (error) {
+            console.error('Error formatting timeline description:', error);
+            return description;
+        }
+    }
+    
+    // Format legacy video descriptions (for backward compatibility)
+    formatLegacyVideoDescription(description) {
+        try {
+            const sections = description.split(' | ');
+            let formatted = '<div class="legacy-video-analysis">';
+            
+            for (let section of sections) {
+                if (section.startsWith('VIDEO ANALYSIS')) {
+                    formatted += `<div class="video-header"><strong>📹 ${section}</strong></div>`;
+                } else if (section.startsWith('ACTIVITIES:')) {
+                    const activities = section.replace('ACTIVITIES:', '').trim();
+                    // Clean up repetitive activities but don't limit the count
+                    const activityList = activities.split(', ');
+                    const uniqueActivities = [...new Set(activityList)];
+                    
+                    // Group similar activities
+                    const cleanedActivities = this.cleanupRepetitiveActivities(uniqueActivities);
+                    
+                    formatted += `<div class="activities-section">
+                        <strong>🎬 Key Activities:</strong><br>
+                        <div class="activity-list">
+                            ${cleanedActivities.map(activity => `<div class="activity-item">• ${activity}</div>`).join('')}
+                        </div>
+                    </div>`;
+                } else if (section.startsWith('ENVIRONMENT:')) {
+                    const environment = section.replace('ENVIRONMENT:', '').trim();
+                    const uniqueEnv = [...new Set(environment.split(', '))];
+                    const cleanedEnv = uniqueEnv.filter(env => env.length > 3); // Remove very short fragments
+                    formatted += `<div class="environment-section">
+                        <strong>🌍 Environment:</strong> ${cleanedEnv.join(', ')}
+                    </div>`;
+                } else if (section.startsWith('MAIN SCENE:')) {
+                    const mainScene = section.replace('MAIN SCENE:', '').trim();
+                    formatted += `<div class="main-scene-section">
+                        <strong>🎯 Main Scene:</strong> ${mainScene}
+                    </div>`;
+                } else if (section.startsWith('ALERTS:')) {
+                    const alerts = section.replace('ALERTS:', '').trim();
+                    formatted += `<div class="alerts-section">
+                        <strong>🔔 Alerts:</strong> ${alerts}
+                    </div>`;
+                }
+            }
+            
+            formatted += '</div>';
+            
+            // Add improved styling for legacy descriptions
+            if (!document.getElementById('legacy-analysis-css')) {
+                const style = document.createElement('style');
+                style.id = 'legacy-analysis-css';
+                style.textContent = `
+                    .legacy-video-analysis {
+                        background: #f8f9fa;
+                        border-radius: 8px;
+                        padding: 1rem;
+                        margin: 0.5rem 0;
+                    }
+                    .activity-list {
+                        max-height: 200px;
+                        overflow-y: auto;
+                        margin-top: 0.5rem;
+                        padding: 0.5rem;
+                        background: white;
+                        border-radius: 4px;
+                        border: 1px solid #dee2e6;
+                    }
+                    .activity-item {
+                        margin: 0.2rem 0;
+                        color: #495057;
+                        line-height: 1.4;
+                    }
+                    .video-header {
+                        color: #495057;
+                        margin-bottom: 1rem;
+                        font-size: 1.1rem;
+                    }
+                    .activities-section, .environment-section, .main-scene-section, .alerts-section {
+                        margin: 1rem 0;
+                        padding: 0.5rem;
+                        background: #e9ecef;
+                        border-radius: 4px;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            
+            return formatted;
+        } catch (error) {
+            console.error('Error formatting legacy video description:', error);
+            return description;
+        }
+    }
+    
+    // Clean up repetitive activities while keeping meaningful content
+    cleanupRepetitiveActivities(activities) {
+        // Group activities by similar patterns
+        const patterns = {
+            'camera_views': [],
+            'house_views': [],
+            'vehicle_activity': [],
+            'person_activity': [],
+            'general': []
+        };
+        
+        for (let activity of activities) {
+            const activityLower = activity.toLowerCase();
+            if (activityLower.includes('camera') && (activityLower.includes('view') || activityLower.includes('captures'))) {
+                patterns.camera_views.push(activity);
+            } else if (activityLower.includes('house') || activityLower.includes('building')) {
+                patterns.house_views.push(activity);
+            } else if (activityLower.includes('car') || activityLower.includes('vehicle') || activityLower.includes('driving')) {
+                patterns.vehicle_activity.push(activity);
+            } else if (activityLower.includes('person') || activityLower.includes('man') || activityLower.includes('woman')) {
+                patterns.person_activity.push(activity);
+            } else {
+                patterns.general.push(activity);
+            }
+        }
+        
+        let cleanedActivities = [];
+        
+        // Add summary for camera views if many
+        if (patterns.camera_views.length > 0) {
+            if (patterns.camera_views.length > 3) {
+                cleanedActivities.push(`Camera captures multiple views of the scene (${patterns.camera_views.length} different angles)`);
+            } else {
+                cleanedActivities.push(...patterns.camera_views.slice(0, 2));
+            }
+        }
+        
+        // Add house/building views
+        if (patterns.house_views.length > 0) {
+            cleanedActivities.push(...patterns.house_views.slice(0, 2));
+        }
+        
+        // Add vehicle activities
+        if (patterns.vehicle_activity.length > 0) {
+            cleanedActivities.push(...patterns.vehicle_activity);
+        }
+        
+        // Add person activities
+        if (patterns.person_activity.length > 0) {
+            cleanedActivities.push(...patterns.person_activity);
+        }
+        
+        // Add general activities
+        if (patterns.general.length > 0) {
+            cleanedActivities.push(...patterns.general);
+        }
+        
+        return cleanedActivities.length > 0 ? cleanedActivities : activities;
     }
 }
 

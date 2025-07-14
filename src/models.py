@@ -84,6 +84,9 @@ class Detection(Base):
     frame_count = Column(Integer, nullable=True)  # For videos
     duration = Column(Float, nullable=True)  # For videos in seconds
     
+    # Thumbnail path for video previews
+    thumbnail_path = Column(String(500), nullable=True)  # Path to generated thumbnail
+    
     # Quick alert flags for fast filtering (denormalized for performance)
     has_person = Column(Boolean, default=False, index=True)
     has_vehicle = Column(Boolean, default=False, index=True)

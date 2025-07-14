@@ -11,13 +11,17 @@ from pathlib import Path
 from datetime import datetime
 import time
 import random
+import sys
+
+# Add parent directory to path so we can import from src
+sys.path.append(str(Path(__file__).parent.parent))
 
 # Import our components
-from ai_model import VisionLanguageModel
-from models import get_or_create_camera, get_alert_flags_from_alerts, Base
-from file_monitor import FoscamMediaProcessor
+from src.ai_model import VisionLanguageModel
+from src.models import get_or_create_camera, get_alert_flags_from_alerts, Base
+from src.file_monitor import FoscamMediaProcessor
 from sqlalchemy.ext.asyncio import create_async_engine
-import config
+import src.config as config
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

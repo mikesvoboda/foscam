@@ -10,12 +10,18 @@ from pathlib import Path
 import os
 import markdown
 import aiofiles
+import time
+import traceback
 
 # Import our models
-from models import Base, Detection, Camera, AlertType, initialize_alert_types
-from config import DATABASE_URL, HOST, PORT, FOSCAM_DIR
-from video_converter import video_converter
-from gpu_monitor import gpu_monitor
+from src.models import Base, Detection, Camera, AlertType, initialize_alert_types
+from src.config import DATABASE_URL, HOST, PORT, FOSCAM_DIR
+from src.video_converter import video_converter
+from src.gpu_monitor import gpu_monitor
+from src.logging_config import setup_logger, setup_uvicorn_logging
+
+# Set up logging
+logger = setup_logger("webui", "INFO")
 
 # Database imports
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -27,19 +33,32 @@ SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=F
 
 # Dependency to get database session
 async def get_db():
-    async with SessionLocal() as session:
-        yield session
+    """Database dependency with logging"""
+    start_time = time.time()
+    try:
+        async with SessionLocal() as session:
+            logger.debug("Database session created")
+            yield session
+    except Exception as e:
+        logger.error(f"Database session error: {e}")
+        raise
+    finally:
+        duration = time.time() - start_time
+        logger.debug(f"Database session closed (duration: {duration:.3f}s)")
 
 # Initialize FastAPI app
 app = FastAPI(title="Foscam Detection Dashboard")
+logger.info("FastAPI app initialized")
 
 # Add static file serving for images and assets
 app.mount("/images", StaticFiles(directory="foscam"), name="images")
 app.mount("/media", StaticFiles(directory="foscam"), name="media")
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
+logger.info("Static file mounts configured")
 
 # Template setup
 templates = Jinja2Templates(directory="src/templates")
+logger.info("Templates configured")
 
 # Create templates directory
 Path("src/templates").mkdir(exist_ok=True)
@@ -47,73 +66,59 @@ Path("src/templates").mkdir(exist_ok=True)
 @app.on_event("startup")
 async def startup():
     """Initialize database on startup."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Starting application startup sequence")
+    try:
+        async with engine.begin() as conn:
+            logger.info("Creating database tables")
+            await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database tables created successfully")
     
-    # Initialize alert types
-    async with SessionLocal() as session:
-        await initialize_alert_types(session)
-        await session.commit()
+        # Initialize alert types
+        async with SessionLocal() as session:
+            logger.info("Initializing alert types")
+            await initialize_alert_types(session)
+            await session.commit()
+            logger.info("Alert types initialized successfully")
+        
+        logger.info("Application startup completed successfully")
+    except Exception as e:
+        logger.error(f"Application startup failed: {e}")
+        logger.error(f"Startup error traceback: {traceback.format_exc()}")
+        raise
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """Main dashboard page with optimized queries."""
-    async with SessionLocal() as session:
-        # Get recent detections with camera information (only processed ones)
-        result = await session.execute(
-            select(Detection, Camera)
-            .join(Camera)
-            .where(Detection.processed == True)
-            .order_by(desc(Detection.file_timestamp))
-            .limit(50)
-        )
-        detection_rows = result.all()
-        detections = [{"detection": det, "camera": cam} for det, cam in detection_rows]
+    """Home page with dashboard"""
+    start_time = time.time()
+    client_ip = request.client.host if request.client else "unknown"
+    logger.info(f"Home page request from {client_ip}")
+    
+    try:
+        # Get recent detections for dashboard
+        logger.debug("Fetching recent detections for dashboard")
+        # Read the dashboard template
+        template_path = Path("src/templates/dashboard.html")
         
-        # Get statistics - total detections
-        total_result = await session.execute(
-            select(func.count(Detection.id)).where(Detection.processed == True)
-        )
-        total_detections = total_result.scalar()
+        if not template_path.exists():
+            logger.error(f"Dashboard template not found: {template_path}")
+            return HTMLResponse(content="Dashboard template not found", status_code=500)
         
-        # Get active cameras count
-        camera_result = await session.execute(
-            select(func.count(Camera.id)).where(Camera.is_active == True)
-        )
-        active_cameras = camera_result.scalar()
+        async with aiofiles.open(template_path, 'r') as f:
+            dashboard_content = await f.read()
         
-        # Today's stats
-        today = datetime.now().date()
-        today_result = await session.execute(
-            select(func.count(Detection.id)).where(
-                Detection.processed == True,
-                Detection.file_timestamp >= today
-            )
-        )
-        today_detections = today_result.scalar()
+        # Add timestamp for cache-busting
+        timestamp = str(int(time.time()))
+        dashboard_content = dashboard_content.replace('{{ timestamp }}', timestamp)
         
-        # Get recent alerts using optimized alert flags
-        alert_result = await session.execute(
-            select(Detection, Camera)
-            .join(Camera)
-            .where(
-                Detection.processed == True,
-                Detection.file_timestamp >= datetime.now() - timedelta(hours=1),
-                Detection.alert_count > 0  # Fast alert filtering
-            )
-            .order_by(desc(Detection.file_timestamp))
-        )
+        duration = time.time() - start_time
+        logger.info(f"Home page served successfully to {client_ip} (duration: {duration:.3f}s)")
+        return HTMLResponse(content=dashboard_content)
         
-        alerts = [{"detection": det, "camera": cam} for det, cam in alert_result.all()]
-        
-        return templates.TemplateResponse("dashboard-modular.html", {
-            "request": request,
-            "detections": detections,
-            "total_detections": total_detections,
-            "active_cameras": active_cameras,
-            "today_detections": today_detections,
-            "alerts": alerts
-        })
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"Home page error for {client_ip}: {e} (duration: {duration:.3f}s)")
+        logger.error(f"Home page error traceback: {traceback.format_exc()}")
+        return HTMLResponse(content="Internal server error", status_code=500)
 
 @app.get("/api/detections")
 async def get_detections(
@@ -121,133 +126,200 @@ async def get_detections(
     per_page: int = Query(50, ge=1, le=100),
     start_date: str = Query(None),
     end_date: str = Query(None),
-    camera_ids: str = Query(None)
+    camera_ids: str = Query(None),
+    db: AsyncSession = Depends(get_db)
 ):
-    """Get detections with pagination and filtering."""
-    async with SessionLocal() as session:
-        # Build query
-        query = select(Detection, Camera).join(Camera).where(Detection.processed == True)
+    """Get paginated detections with filtering"""
+    start_time = time.time()
+    logger.info(f"API detections request - page: {page}, per_page: {per_page}, start_date: {start_date}, end_date: {end_date}, camera_ids: {camera_ids}")
+    
+    try:
+        # Start with base query
+        query = select(Detection).options(selectinload(Detection.camera))
         
-        # Date filtering
+        # Apply date filters
         if start_date:
             try:
-                start_dt = datetime.fromisoformat(start_date)
-                query = query.where(Detection.file_timestamp >= start_dt)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid start_date format")
+                start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                query = query.where(Detection.timestamp >= start_dt)
+                logger.debug(f"Applied start date filter: {start_dt}")
+            except ValueError as e:
+                logger.warning(f"Invalid start_date format: {start_date} - {e}")
         
         if end_date:
             try:
-                end_dt = datetime.fromisoformat(end_date)
-                query = query.where(Detection.file_timestamp <= end_dt)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid end_date format")
+                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                query = query.where(Detection.timestamp <= end_dt)
+                logger.debug(f"Applied end date filter: {end_dt}")
+            except ValueError as e:
+                logger.warning(f"Invalid end_date format: {end_date} - {e}")
         
-        # Camera filtering
+        # Apply camera filter
         if camera_ids:
-            camera_id_list = [int(id.strip()) for id in camera_ids.split(',') if id.strip()]
-            if camera_id_list:
-                query = query.where(Camera.id.in_(camera_id_list))
+            try:
+                camera_id_list = [int(id.strip()) for id in camera_ids.split(',')]
+                query = query.where(Detection.camera_id.in_(camera_id_list))
+                logger.debug(f"Applied camera filter: {camera_id_list}")
+            except ValueError as e:
+                logger.warning(f"Invalid camera_ids format: {camera_ids} - {e}")
         
-        # Get total count for pagination
-        count_query = select(func.count(Detection.id)).select_from(query.subquery())
-        total_result = await session.execute(count_query)
-        total = total_result.scalar()
+        # Get total count
+        logger.debug("Counting total detections")
+        count_query = select(func.count()).select_from(query.subquery())
+        total_count = await db.execute(count_query)
+        total = total_count.scalar()
+        logger.debug(f"Total detections matching filter: {total}")
         
-        # Apply pagination
+        # Apply pagination and ordering
+        query = query.order_by(desc(Detection.timestamp))
         offset = (page - 1) * per_page
-        query = query.order_by(desc(Detection.file_timestamp)).limit(per_page).offset(offset)
+        query = query.offset(offset).limit(per_page)
         
-        result = await session.execute(query)
-        detection_rows = result.all()
+        # Execute query
+        logger.debug(f"Executing detections query with offset: {offset}, limit: {per_page}")
+        result = await db.execute(query)
+        detections = result.scalars().all()
         
-        # Format response
-        detections = []
-        for detection, camera in detection_rows:
-            # Extract the relative path from the full filepath (remove 'foscam/' prefix)
-            media_filename = None
-            if detection.filepath:
-                # Remove 'foscam/' prefix if present to get the relative path for /media/ mount
-                filepath_str = str(detection.filepath)
-                media_filename = filepath_str.replace('foscam/', '') if filepath_str.startswith('foscam/') else filepath_str
-            
-            detections.append({
+        # Convert to response format
+        logger.debug(f"Converting {len(detections)} detections to response format")
+        detection_list = []
+        for detection in detections:
+            detection_dict = {
                 "id": detection.id,
-                "timestamp": detection.file_timestamp.isoformat() if detection.file_timestamp else detection.timestamp.isoformat(),
-                "camera_location": camera.location,
+                "camera_id": detection.camera_id,
+                "camera_location": detection.camera.full_name if detection.camera else "Unknown",
+                "timestamp": detection.timestamp.isoformat(),
+                "file_timestamp": detection.file_timestamp.isoformat() if detection.file_timestamp else None,
+                "confidence": detection.confidence,
                 "media_type": detection.media_type,
-                "description": detection.description or "No description",
-                "confidence": round(detection.confidence, 1) if detection.confidence else 0,
-                "media_filename": media_filename
-            })
-        
-        return {
-            "detections": detections,
-            "pagination": {
-                "page": page,
-                "per_page": per_page,
-                "total": total,
-                "total_pages": (total + per_page - 1) // per_page
+                "motion_detection_type": detection.motion_detection_type,
+                "media_filename": detection.filepath,
+                "filename": detection.filename,
+                "description": detection.description,
+                "processed": detection.processed,
+                "processing_time": detection.processing_time,
+                "width": detection.width,
+                "height": detection.height,
+                "frame_count": detection.frame_count,
+                "duration": detection.duration,
+                "has_person": detection.has_person,
+                "has_vehicle": detection.has_vehicle,
+                "has_package": detection.has_package,
+                "has_unusual_activity": detection.has_unusual_activity,
+                "is_night_time": detection.is_night_time,
+                "alert_count": detection.alert_count,
+                "analysis_structured": detection.analysis_structured
             }
+            detection_list.append(detection_dict)
+        
+        response_data = {
+            "detections": detection_list,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": (total + per_page - 1) // per_page
         }
+        
+        duration = time.time() - start_time
+        logger.info(f"API detections response - total: {total}, returned: {len(detections)}, page: {page}/{response_data['total_pages']} (duration: {duration:.3f}s)")
+        return JSONResponse(content=response_data)
+        
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"API detections error: {e} (duration: {duration:.3f}s)")
+        logger.error(f"API detections error traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/detections/heatmap")
 async def get_detections_heatmap(
     days: int = 30,
     resolution: str = "day",
     camera_ids: str = None,
-    per_camera: bool = False
+    per_camera: bool = False,
+    db: AsyncSession = Depends(get_db)
 ):
-    """Get detection counts aggregated by time for heatmap visualization."""
-    async with SessionLocal() as session:
-        # Calculate time range
-        end_time = datetime.now()
-        start_time = end_time - timedelta(days=days)
+    """Get detection heatmap data with extensive logging"""
+    start_time = time.time()
+    logger.info(f"API heatmap request - days: {days}, resolution: {resolution}, camera_ids: {camera_ids}, per_camera: {per_camera}")
+    
+    try:
+        # Validate resolution
+        if resolution not in ["day", "hour"]:
+            logger.warning(f"Invalid resolution parameter: {resolution}")
+            raise HTTPException(status_code=400, detail="Resolution must be 'day' or 'hour'")
         
-        # Build query
-        query = select(Detection.file_timestamp, Detection.camera_id, Camera.location).join(Camera).where(
-            Detection.processed == True,
-            Detection.file_timestamp >= start_time,
-            Detection.file_timestamp <= end_time
+        # Calculate date range
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        logger.debug(f"Heatmap date range: {start_date} to {end_date}")
+        
+        # Build base query
+        query = select(Detection).where(
+            Detection.timestamp >= start_date,
+            Detection.timestamp <= end_date,
+            Detection.processed == True
         )
         
-        # Apply camera filtering if specified
+        # Apply camera filter
         if camera_ids:
-            camera_id_list = [int(id.strip()) for id in camera_ids.split(',') if id.strip()]
-            if camera_id_list:
-                query = query.where(Camera.id.in_(camera_id_list))
+            try:
+                camera_id_list = [int(id.strip()) for id in camera_ids.split(',')]
+                query = query.where(Detection.camera_id.in_(camera_id_list))
+                logger.debug(f"Applied camera filter to heatmap: {camera_id_list}")
+            except ValueError as e:
+                logger.warning(f"Invalid camera_ids format in heatmap: {camera_ids} - {e}")
         
-        result = await session.execute(query)
-        detection_data = result.all()
+        # Execute query
+        logger.debug("Executing heatmap query")
+        result = await db.execute(query)
+        detections = result.scalars().all()
+        logger.debug(f"Retrieved {len(detections)} detections for heatmap")
         
-        # Aggregate by day
-        daily_counts = {}
-        camera_breakdown = {}
+        # Process data based on resolution
+        heatmap_data = {}
         
-        for timestamp, camera_id, location in detection_data:
-            date_key = timestamp.date().isoformat()
-            
-            # Overall count
-            daily_counts[date_key] = daily_counts.get(date_key, 0) + 1
-            
-            # Per-camera breakdown if requested
-            if per_camera:
-                if date_key not in camera_breakdown:
-                    camera_breakdown[date_key] = {}
-                camera_breakdown[date_key][location] = camera_breakdown[date_key].get(location, 0) + 1
+        if resolution == "day":
+            # Group by date
+            for detection in detections:
+                date_key = detection.timestamp.date().isoformat()
+                if per_camera:
+                    camera_key = f"{detection.camera_id}"
+                    if camera_key not in heatmap_data:
+                        heatmap_data[camera_key] = {}
+                    heatmap_data[camera_key][date_key] = heatmap_data[camera_key].get(date_key, 0) + 1
+                else:
+                    heatmap_data[date_key] = heatmap_data.get(date_key, 0) + 1
         
-        # Convert to list format
-        heatmap_data = []
-        for date_str, count in sorted(daily_counts.items()):
-            item = {
-                "timestamp": date_str,
-                "count": count
-            }
-            if per_camera and date_str in camera_breakdown:
-                item["camera_breakdown"] = camera_breakdown[date_str]
-            heatmap_data.append(item)
+        elif resolution == "hour":
+            # Group by hour
+            for detection in detections:
+                hour_key = detection.timestamp.strftime("%Y-%m-%d %H:00")
+                if per_camera:
+                    camera_key = f"{detection.camera_id}"
+                    if camera_key not in heatmap_data:
+                        heatmap_data[camera_key] = {}
+                    heatmap_data[camera_key][hour_key] = heatmap_data[camera_key].get(hour_key, 0) + 1
+                else:
+                    heatmap_data[hour_key] = heatmap_data.get(hour_key, 0) + 1
         
-        return {"heatmap_data": heatmap_data}
+        duration = time.time() - start_time
+        logger.info(f"API heatmap response - processed {len(detections)} detections, resolution: {resolution}, data points: {len(heatmap_data)} (duration: {duration:.3f}s)")
+        
+        return JSONResponse(content={
+            "heatmap_data": heatmap_data,
+            "resolution": resolution,
+            "days": days,
+            "per_camera": per_camera,
+            "total_detections": len(detections)
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"API heatmap error: {e} (duration: {duration:.3f}s)")
+        logger.error(f"API heatmap error traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/detections/heatmap-hourly")
 async def get_hourly_heatmap(
@@ -306,25 +378,37 @@ async def get_hourly_heatmap(
         return {"heatmap_data": heatmap_data}
 
 @app.get("/api/cameras")
-async def get_cameras():
-    """Get all cameras."""
-    async with SessionLocal() as session:
-        result = await session.execute(
-            select(Camera).order_by(Camera.location, Camera.device_name)
-        )
+async def get_cameras(db: AsyncSession = Depends(get_db)):
+    """Get all cameras with extensive logging"""
+    start_time = time.time()
+    logger.info("API cameras request")
+    
+    try:
+        logger.debug("Fetching all cameras")
+        result = await db.execute(select(Camera))
         cameras = result.scalars().all()
         
-        camera_data = []
+        camera_list = []
         for camera in cameras:
-            camera_data.append({
+            camera_dict = {
                 "id": camera.id,
+                "name": camera.full_name,
                 "location": camera.location,
                 "device_name": camera.device_name,
-                "full_name": camera.full_name,
-                "is_active": camera.is_active
-            })
+                "is_active": camera.is_active,
+                "last_seen": camera.last_seen.isoformat() if camera.last_seen else None
+            }
+            camera_list.append(camera_dict)
         
-        return {"cameras": camera_data}
+        duration = time.time() - start_time
+        logger.info(f"API cameras response - returned {len(cameras)} cameras (duration: {duration:.3f}s)")
+        return JSONResponse(content={"cameras": camera_list})
+        
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"API cameras error: {e} (duration: {duration:.3f}s)")
+        logger.error(f"API cameras error traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/detections/stats")
 async def get_stats(
@@ -437,31 +521,44 @@ async def stream_video(detection_id: int):
         return FileResponse(converted_path)
 
 @app.get("/api/video/thumbnail/{detection_id}")
-async def get_video_thumbnail(detection_id: int):
-    """Get or generate video thumbnail"""
-    # Get detection
-    async with AsyncSession(engine) as session:
-        result = await session.execute(
-            select(Detection).filter(Detection.id == detection_id)
-        )
+async def get_video_thumbnail(detection_id: int, db: AsyncSession = Depends(get_db)):
+    """Get video thumbnail with extensive logging"""
+    start_time = time.time()
+    logger.info(f"API video thumbnail request - detection_id: {detection_id}")
+    
+    try:
+        # Get detection from database
+        logger.debug(f"Fetching detection {detection_id} from database")
+        result = await db.execute(select(Detection).where(Detection.id == detection_id))
         detection = result.scalar_one_or_none()
         
         if not detection:
+            logger.warning(f"Detection {detection_id} not found for thumbnail")
             raise HTTPException(status_code=404, detail="Detection not found")
         
-        if detection.media_type != 'video':
-            raise HTTPException(status_code=400, detail="Detection is not a video")
+        # Check if thumbnail exists
+        thumbnail_path = Path(detection.thumbnail_path) if detection.thumbnail_path else None
         
-        original_path = Path(detection.filepath)
-        thumbnail_path = video_converter.get_thumbnail_path(original_path)
+        if not thumbnail_path or not thumbnail_path.exists():
+            logger.warning(f"Thumbnail file not found for detection {detection_id}: {thumbnail_path}")
+            raise HTTPException(status_code=404, detail="Thumbnail not found")
         
-        # Generate thumbnail if it doesn't exist
-        if not thumbnail_path.exists():
-            result = await video_converter.generate_thumbnail(original_path)
-            if not result['success']:
-                raise HTTPException(status_code=500, detail=f"Thumbnail generation failed: {result['error']}")
+        duration = time.time() - start_time
+        logger.info(f"API video thumbnail response - detection_id: {detection_id}, file: {thumbnail_path} (duration: {duration:.3f}s)")
         
-        return FileResponse(thumbnail_path, media_type="image/jpeg")
+        return FileResponse(
+            path=str(thumbnail_path),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "max-age=3600"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"API video thumbnail error for detection {detection_id}: {e} (duration: {duration:.3f}s)")
+        logger.error(f"API video thumbnail error traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/thumbnails/{filename:path}")
 async def serve_thumbnail(filename: str):
@@ -517,23 +614,27 @@ async def get_video_info(detection_id: int):
 # Markdown Documentation Endpoints
 @app.get("/docs/project-readme", response_class=HTMLResponse)
 async def serve_project_readme():
-    """Serve the main project README.md with enhanced styling"""
+    """Serve the main project README.md with basic styling"""
+    start_time = time.time()
+    logger.info("Documentation request - project README")
+    
     try:
         # Get the project root README.md
         readme_path = Path(__file__).parent.parent / "README.md"
         
         if not readme_path.exists():
+            logger.warning("README.md not found")
             raise HTTPException(status_code=404, detail="README.md not found")
         
-        # Read and render the markdown
+        # Read the markdown content
         async with aiofiles.open(readme_path, 'r', encoding='utf-8') as f:
             markdown_content = await f.read()
         
-        # Render markdown to HTML with extensions (added 'toc' back for anchor generation)
+        # Render markdown to HTML with extensions (including TOC for anchor generation)
         md = markdown.Markdown(extensions=['codehilite', 'fenced_code', 'tables', 'toc'])
         html_content = md.convert(markdown_content)
         
-        # Create a proper HTML page with styling
+        # Create a simple HTML page
         html_page = f"""
 <!DOCTYPE html>
 <html lang="en">
@@ -629,10 +730,6 @@ async def serve_project_readme():
             text-decoration: underline;
         }}
         
-        .content {{
-            margin-top: 20px;
-        }}
-        
         /* Mermaid diagram styling */
         .mermaid {{
             background-color: #f8f9fa;
@@ -676,7 +773,7 @@ async def serve_project_readme():
             <p style="color: #586069; margin: 10px 0 0 0;">Comprehensive system documentation with architectural diagrams</p>
         </div>
         
-        <a href="javascript:window.close()" class="back-link">← Close Window</a>
+        <a href="/" class="back-link">← Back to Dashboard</a>
         
         <div class="content">
             {html_content}
@@ -686,7 +783,7 @@ async def serve_project_readme():
 <script>
     // Initialize Mermaid with custom configuration
     mermaid.initialize({{
-        startOnLoad: true,
+        startOnLoad: false,  // We'll manually trigger rendering
         theme: 'default',
         themeVariables: {{
             primaryColor: '#0366d6',
@@ -697,22 +794,56 @@ async def serve_project_readme():
             tertiaryColor: '#fafbfc'
         }}
     }});
+    
+    // Convert mermaid code blocks to mermaid divs and render
+    document.addEventListener('DOMContentLoaded', function() {{
+        // Find all code blocks with language-mermaid class
+        const mermaidCodeBlocks = document.querySelectorAll('code.language-mermaid');
+        
+        mermaidCodeBlocks.forEach(function(codeBlock, index) {{
+            // Get the mermaid code content
+            const mermaidCode = codeBlock.textContent;
+            
+            // Create a new mermaid div
+            const mermaidDiv = document.createElement('div');
+            mermaidDiv.className = 'mermaid';
+            mermaidDiv.id = 'mermaid-' + index;
+            mermaidDiv.textContent = mermaidCode;
+            
+            // Replace the entire pre/code structure with the mermaid div
+            const preElement = codeBlock.closest('pre');
+            if (preElement) {{
+                preElement.parentNode.replaceChild(mermaidDiv, preElement);
+            }}
+        }});
+        
+        // Now render all mermaid diagrams
+        mermaid.run();
+    }});
 </script>
 </html>
         """
         
+        duration = time.time() - start_time
+        logger.info(f"Documentation served successfully - project README (duration: {duration:.3f}s)")
         return HTMLResponse(content=html_page)
         
     except Exception as e:
-        # logger.error(f"Error serving project README: {e}") # Original code had this line commented out
+        duration = time.time() - start_time
+        logger.error(f"Documentation error - project README: {e} (duration: {duration:.3f}s)")
+        logger.error(f"Documentation error traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error loading README: {str(e)}")
 
 @app.get("/docs/{doc_path:path}", response_class=HTMLResponse)
 async def serve_markdown_doc(doc_path: str):
-    """Serve markdown documentation with enhanced styling and mermaid support"""
+    """Serve markdown documentation with basic styling"""
+    start_time = time.time()
+    logger.info(f"Documentation request - {doc_path}")
+    
     try:
         # Security: Validate the path to prevent directory traversal
         if ".." in doc_path or doc_path.startswith("/"):
+            logger.warning(f"Invalid documentation path attempted: {doc_path}")
             raise HTTPException(status_code=400, detail="Invalid path")
         
         # Construct the full path to the documentation file
@@ -721,23 +852,25 @@ async def serve_markdown_doc(doc_path: str):
         
         # Ensure the file exists and is within the docs directory
         if not file_path.exists():
+            logger.warning(f"Documentation file not found: {doc_path}")
             raise HTTPException(status_code=404, detail="Documentation file not found")
         
         # Verify the resolved path is still within docs directory (security)
         try:
             file_path.resolve().relative_to(docs_dir.resolve())
         except ValueError:
+            logger.warning(f"Access denied to documentation path: {doc_path}")
             raise HTTPException(status_code=400, detail="Access denied")
         
         # Read and render the markdown
         async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
             markdown_content = await f.read()
         
-        # Render markdown to HTML with extensions (added 'toc' back for anchor generation)
-        md = markdown.Markdown(extensions=['codehilite', 'fenced_code', 'tables', 'toc'])
+        # Simple markdown to HTML conversion
+        md = markdown.Markdown(extensions=['fenced_code', 'tables'])
         html_content = md.convert(markdown_content)
         
-        # Create a proper HTML page with styling
+        # Create a simple HTML page
         html_page = f"""
 <!DOCTYPE html>
 <html lang="en">
@@ -833,10 +966,6 @@ async def serve_markdown_doc(doc_path: str):
             text-decoration: underline;
         }}
         
-        .content {{
-            margin-top: 20px;
-        }}
-        
         /* Mermaid diagram styling */
         .mermaid {{
             background-color: #f8f9fa;
@@ -890,7 +1019,7 @@ async def serve_markdown_doc(doc_path: str):
 <script>
     // Initialize Mermaid with custom configuration
     mermaid.initialize({{
-        startOnLoad: true,
+        startOnLoad: false,  // We'll manually trigger rendering
         theme: 'default',
         themeVariables: {{
             primaryColor: '#0366d6',
@@ -901,16 +1030,46 @@ async def serve_markdown_doc(doc_path: str):
             tertiaryColor: '#fafbfc'
         }}
     }});
+    
+    // Convert mermaid code blocks to mermaid divs and render
+    document.addEventListener('DOMContentLoaded', function() {{
+        // Find all code blocks with language-mermaid class
+        const mermaidCodeBlocks = document.querySelectorAll('code.language-mermaid');
+        
+        mermaidCodeBlocks.forEach(function(codeBlock, index) {{
+            // Get the mermaid code content
+            const mermaidCode = codeBlock.textContent;
+            
+            // Create a new mermaid div
+            const mermaidDiv = document.createElement('div');
+            mermaidDiv.className = 'mermaid';
+            mermaidDiv.id = 'mermaid-' + index;
+            mermaidDiv.textContent = mermaidCode;
+            
+            // Replace the entire pre/code structure with the mermaid div
+            const preElement = codeBlock.closest('pre');
+            if (preElement) {{
+                preElement.parentNode.replaceChild(mermaidDiv, preElement);
+            }}
+        }});
+        
+        // Now render all mermaid diagrams
+        mermaid.run();
+    }});
 </script>
 </html>
         """
         
+        duration = time.time() - start_time
+        logger.info(f"Documentation served successfully - {doc_path} (duration: {duration:.3f}s)")
         return HTMLResponse(content=html_page)
         
     except HTTPException:
         raise
     except Exception as e:
-        # logger.error(f"Error serving markdown documentation {doc_path}: {e}") # Original code had this line commented out
+        duration = time.time() - start_time
+        logger.error(f"Documentation error - {doc_path}: {e} (duration: {duration:.3f}s)")
+        logger.error(f"Documentation error traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error loading documentation: {str(e)}")
 
 # GPU Monitoring API Endpoints
@@ -937,13 +1096,42 @@ async def get_gpu_history(minutes: int = Query(5, ge=1, le=60)):
 
 @app.get("/api/gpu/stats")
 async def get_gpu_stats():
-    """Get GPU summary statistics"""
+    """Get GPU statistics"""
+    start_time = time.time()
+    logger.info("API GPU stats request")
+    
     try:
-        stats = gpu_monitor.get_summary_stats()
-        return {"success": True, "data": stats}
+        stats = gpu_monitor.get_stats()
+        duration = time.time() - start_time
+        logger.info(f"API GPU stats response (duration: {duration:.3f}s)")
+        return JSONResponse(content=stats)
+        
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        duration = time.time() - start_time
+        logger.error(f"API GPU stats error: {e} (duration: {duration:.3f}s)")
+        logger.error(f"API GPU stats error traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
+# Main function for running with uvicorn
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=HOST, port=PORT) 
+    
+    # Set up uvicorn logging
+    uvicorn_log_config = setup_uvicorn_logging("webui")
+    
+    logger.info("Starting Foscam Detection Dashboard Web UI")
+    logger.info(f"Server will run on http://0.0.0.0:7999")
+    
+    try:
+        uvicorn.run(
+            "src.web_app:app",
+            host="0.0.0.0",
+            port=7999,
+            log_config=uvicorn_log_config,
+            reload=False,
+            access_log=True
+        )
+    except Exception as e:
+        logger.error(f"Failed to start uvicorn server: {e}")
+        logger.error(f"Uvicorn startup error traceback: {traceback.format_exc()}")
+        raise 

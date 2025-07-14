@@ -16,7 +16,7 @@ FOSCAM_DIR.mkdir(exist_ok=True)
 MODEL_NAME = "Salesforce/blip2-flan-t5-xl"  # Flan T5-XL model for enhanced analysis
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 2  # Reduced for T5-XL to avoid memory issues
-MAX_LENGTH = 50
+MAX_LENGTH = 200
 USE_8BIT_QUANTIZATION = True  # Enable 8-bit quantization for memory efficiency
 
 # Video Processing

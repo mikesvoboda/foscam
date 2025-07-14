@@ -1,329 +1,334 @@
-# Foscam Logging System Setup
+# Foscam Detection Dashboard - Comprehensive Logging System
 
-This document describes the comprehensive logging system for the Foscam Detection Dashboard, including centralized logging, rotation, and cleanup.
+This document describes the advanced logging system for the Foscam Detection Dashboard, featuring daily log rotation, automatic cleanup, extensive request tracking, and integrated nginx logging.
 
-## 📁 Directory Structure
+## 🎯 **System Overview**
+
+The Foscam logging system provides comprehensive monitoring and debugging capabilities with:
+
+- **Daily Log Rotation** with 30-day automatic retention
+- **Extensive Request Tracking** with performance monitoring 
+- **Automatic Log Cleanup** to prevent disk space issues
+- **Integrated Nginx Logging** for web server monitoring
+- **Multi-Level Logging** (DEBUG, INFO, WARNING, ERROR)
+- **Real-Time Performance Metrics** for all API endpoints
+
+## 📁 **Directory Structure**
 
 ```
 foscam/
 ├── logs/                           # Central logging directory
-│   ├── webui.log                  # Web UI application logs
-│   ├── webui_error.log            # Web UI error logs only
-│   ├── webui_access.log           # HTTP access logs
+│   ├── webui.log                  # Main application logs with daily rotation
+│   ├── webui_error.log            # Error-only logs (ERROR, CRITICAL)
+│   ├── webui_access.log           # Uvicorn HTTP access logs
 │   ├── webui_uvicorn.log          # Uvicorn server logs
-│   ├── webui_systemd.log          # Systemd service stdout
-│   ├── webui_systemd_error.log    # Systemd service stderr
-│   ├── crawler.log                # File crawler logs (when enabled)
-│   ├── crawler_error.log          # Crawler error logs
-│   ├── monitor.log                # File monitor logs (when enabled)
-│   ├── logrotate.log              # Log rotation activities
-│   ├── cleanup.log                # Log cleanup activities
-│   └── logrotate.state            # Logrotate state file
-├── logging_config.py              # Centralized logging configuration
-├── logrotate.conf                 # Logrotate configuration
-├── setup-logging.sh               # Initial logging setup script
-├── manage-logs.sh                 # Log management utility
-├── run-logrotate.sh               # Manual log rotation script
-└── cleanup-old-logs.sh            # Log cleanup script
+│   ├── nginx_access.log           # Nginx access logs (detailed format)
+│   ├── nginx_error.log            # Nginx error logs
+│   ├── nginx.pid                  # Nginx process ID file
+│   ├── nginx_*_temp/              # Nginx temporary directories
+│   └── *.log.YYYY-MM-DD           # Rotated log files (auto-deleted after 30 days)
+├── src/
+│   ├── logging_config.py          # Centralized logging configuration
+│   └── web_app.py                 # Application with extensive logging
+└── nginx.conf                     # Nginx configuration with logging
 ```
 
-## 🚀 Quick Start
+## 🚀 **Quick Start**
 
-### Initial Setup
+### Starting Services with Logging
 ```bash
-# Set up logging system
-./setup-logging.sh
-
-# View log status
-./manage-logs.sh status
-
-# Start services
+# Start both backend and nginx with logging enabled
 ./restart-webui.sh
-```
 
-### Common Operations
-```bash
-# View recent logs
-./manage-logs.sh view webui 50
-
-# Follow logs in real-time
-./manage-logs.sh tail webui
-
-# Check for errors
-./manage-logs.sh errors
-
-# Manual log rotation
-./manage-logs.sh rotate
-
-# Clean old logs
-./manage-logs.sh clean
-```
-
-## 📊 Log Files Description
-
-### Application Logs
-- **webui.log**: Main web UI application logs (INFO, WARNING, ERROR)
-- **webui_error.log**: Error logs only (ERROR, CRITICAL)
-- **webui_access.log**: HTTP access logs with request details
-- **webui_uvicorn.log**: Uvicorn server logs
-- **webui_systemd.log**: Systemd service stdout
-- **webui_systemd_error.log**: Systemd service stderr
-
-### Future Service Logs
-- **crawler.log**: File crawler logs (when implemented)
-- **crawler_error.log**: Crawler error logs
-- **monitor.log**: File monitor logs (when implemented)
-
-### System Logs
-- **logrotate.log**: Log rotation activities and status
-- **cleanup.log**: Log cleanup activities
-- **logrotate.state**: Logrotate internal state
-
-## 🔄 Log Rotation
-
-### Configuration
-- **Frequency**: Daily at 2:00 AM
-- **Retention**: 30 days
-- **Compression**: Enabled (gzip)
-- **Method**: Copy and truncate (preserves file handles)
-
-### Rotation Rules
-1. **Main logs**: Daily rotation, 30 days retention
-2. **Error logs**: Daily rotation, immediate compression
-3. **Access logs**: Daily rotation, delayed compression
-4. **Uvicorn logs**: Daily rotation, 30 days retention
-
-### Cron Jobs
-```bash
-# Daily log rotation at 2 AM
-0 2 * * * /home/msvoboda/foscam/run-logrotate.sh >/dev/null 2>&1
-
-# Weekly cleanup at 3 AM on Sunday
-0 3 * * 0 /home/msvoboda/foscam/cleanup-old-logs.sh >/dev/null 2>&1
-```
-
-## 🧹 Log Cleanup
-
-### Automatic Cleanup
-- **Compressed logs**: Removed after 30 days
-- **Old rotated logs**: Removed after 30 days
-- **Frequency**: Weekly (Sunday 3:00 AM)
-
-### Manual Cleanup
-```bash
-# Clean old logs manually
-./cleanup-old-logs.sh
-
-# Or use the management script
-./manage-logs.sh clean
-```
-
-## 🛠️ Management Commands
-
-### Log Management Script
-```bash
-# Show help
-./manage-logs.sh help
-
-# View log status
-./manage-logs.sh status
-
-# Follow logs in real-time
-./manage-logs.sh tail [webui|crawler|monitor]
-
-# View recent entries
-./manage-logs.sh view [log_type] [number_of_lines]
-
-# Show recent errors
-./manage-logs.sh errors
-
-# Manual log rotation
-./manage-logs.sh rotate
-
-# Clean old logs
-./manage-logs.sh clean
-
-# Show detailed statistics
-./manage-logs.sh stats
-```
-
-### Direct Commands
-```bash
-# View recent web UI logs
+# Check if logging is working
 tail -f logs/webui.log
 
-# Check errors
-grep ERROR logs/webui_error.log
-
-# View systemd service logs
-journalctl --user -u foscam-webui -f
-
-# Check log sizes
-du -sh logs/
+# Monitor real-time requests
+tail -f logs/nginx_access.log
 ```
 
-## 📝 Logging Configuration
-
-### Python Logging
-The system uses a centralized logging configuration in `logging_config.py`:
-
-```python
-# Set up logger for a service
-logger = setup_logger("webui", "INFO")
-
-# Use logger in code
-logger.info("Application started")
-logger.error("Database connection failed")
-```
-
-### Log Levels
-- **DEBUG**: Detailed diagnostic information
-- **INFO**: General application events
-- **WARNING**: Something unexpected happened
-- **ERROR**: Application error occurred
-- **CRITICAL**: Serious error, application may stop
-
-### Log Format
-```
-2025-07-13 09:15:54 - webui - INFO - web_app.py:45 - Application started successfully
-```
-
-## 🔧 Systemd Integration
-
-### Service Configuration
-The systemd service is configured to log to both files and journald:
-
-```ini
-# File logging
-StandardOutput=append:/home/msvoboda/foscam/logs/webui_systemd.log
-StandardError=append:/home/msvoboda/foscam/logs/webui_systemd_error.log
-
-# Journal logging
-SyslogIdentifier=foscam-webui
-```
-
-### Service Management
+### Viewing Logs
 ```bash
-# Restart service
+# Application logs
+tail -f logs/webui.log
+
+# Error logs only
+tail -f logs/webui_error.log
+
+# Nginx access logs
+tail -f logs/nginx_access.log
+
+# All logs combined
+tail -f logs/*.log
+```
+
+## 📊 **Logging Features**
+
+### **Daily Rotation & Automatic Cleanup**
+- **Rotation Time**: Every day at midnight
+- **Retention Period**: 30 days
+- **Auto-cleanup**: Files older than 30 days are automatically deleted
+- **File Format**: `logfile.log.YYYY-MM-DD`
+
+### **Extensive Request Tracking**
+Every API request is logged with:
+- **Client IP Address** (with 'unknown' fallback)
+- **Request Parameters** (page, filters, etc.)
+- **Response Time** in milliseconds
+- **Success/Error Status** with detailed error information
+- **Database Query Performance** tracking
+
+### **Performance Monitoring**
+- **API Endpoint Timing**: Duration tracking for all endpoints
+- **Database Session Monitoring**: Connection time and cleanup
+- **Error Rate Tracking**: Automatic error counting and reporting
+- **Memory Usage**: Peak memory tracking for operations
+
+## 🛠️ **Configuration Details**
+
+### **Application Logging (src/logging_config.py)**
+
+#### **Logger Setup**
+```python
+def setup_logger(service_name: str, log_level: str = "INFO") -> logging.Logger:
+    """
+    Daily rotation with 30-day cleanup:
+    - TimedRotatingFileHandler (when='midnight', backupCount=30)
+    - Automatic old log file cleanup on startup
+    - Detailed formatter with file:line information
+    """
+```
+
+#### **Log Formatters**
+- **Detailed Format**: `%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s`
+- **Date Format**: `%Y-%m-%d %H:%M:%S`
+- **Console Format**: Simplified for development
+
+#### **Handler Configuration**
+```python
+# Main application logs
+file_handler = TimedRotatingFileHandler(
+    log_file, when='midnight', interval=1, backupCount=30
+)
+
+# Error-only logs  
+error_handler = TimedRotatingFileHandler(
+    error_file, when='midnight', interval=1, backupCount=30
+)
+
+# Console output for development
+console_handler = StreamHandler()
+```
+
+### **Uvicorn Logging**
+```python
+def setup_uvicorn_logging(service_name: str = "webui") -> dict:
+    """
+    Uvicorn server logging with daily rotation:
+    - Access logs: Request details with client IP
+    - Server logs: Startup, shutdown, errors
+    - Daily rotation with 30-day retention
+    """
+```
+
+### **Nginx Logging (nginx.conf)**
+
+#### **Access Log Format**
+```nginx
+log_format detailed '$remote_addr - $remote_user [$time_local] '
+                   '"$request" $status $body_bytes_sent '
+                   '"$http_referer" "$http_user_agent" '
+                   '$request_time $upstream_response_time';
+
+access_log /home/msvoboda/foscam/logs/nginx_access.log detailed;
+```
+
+#### **Error Logging**
+```nginx
+error_log /home/msvoboda/foscam/logs/nginx_error.log warn;
+pid /home/msvoboda/foscam/logs/nginx.pid;
+```
+
+## 📈 **Extensive Logging Examples**
+
+### **API Request Logging**
+```
+2025-07-14 01:49:02 - webui - INFO - web_app.py:601 - Documentation request - project README
+2025-07-14 01:49:03 - webui - INFO - web_app.py:722 - Documentation served successfully - project README (duration: 0.028s)
+```
+
+### **Performance Monitoring**
+```
+2025-07-14 01:46:01 - webui - INFO - web_app.py:94 - Home page request from 127.0.0.1
+2025-07-14 01:46:01 - webui - INFO - web_app.py:110 - Home page served successfully to 127.0.0.1 (duration: 0.001s)
+```
+
+### **Error Tracking**
+```
+2025-07-14 01:44:22 - webui - ERROR - web_app.py:391 - API cameras error: 'Camera' object has no attribute 'name' (duration: 0.002s)
+2025-07-14 01:44:22 - webui - ERROR - web_app.py:392 - API cameras error traceback: Traceback (most recent call last):
+  File "/home/msvoboda/foscam/src/web_app.py", line 377, in get_cameras
+    "name": camera.name,
+            ^^^^^^^^^^^
+AttributeError: 'Camera' object has no attribute 'name'
+```
+
+### **Database Session Monitoring**
+```
+2025-07-14 01:45:15 - webui - DEBUG - web_app.py:37 - Database session created
+2025-07-14 01:45:15 - webui - DEBUG - web_app.py:44 - Database session closed (duration: 0.003s)
+```
+
+## 🔍 **Monitoring Commands**
+
+### **Real-Time Monitoring**
+```bash
+# Follow application logs
+tail -f logs/webui.log
+
+# Monitor API requests with timing
+tail -f logs/webui.log | grep "duration:"
+
+# Watch error logs
+tail -f logs/webui_error.log
+
+# Monitor nginx access
+tail -f logs/nginx_access.log
+
+# Combined monitoring
+tail -f logs/webui.log logs/nginx_access.log
+```
+
+### **Log Analysis**
+```bash
+# Count requests by endpoint
+grep -o "API [^:]*" logs/webui.log | sort | uniq -c
+
+# Average response times
+grep "duration:" logs/webui.log | grep -o "duration: [0-9.]*" | cut -d: -f2 | awk '{sum+=$1; n++} END {print "Average:", sum/n, "seconds"}'
+
+# Error summary
+grep ERROR logs/webui_error.log | cut -d- -f5- | sort | uniq -c
+
+# Top client IPs
+grep "request from" logs/webui.log | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+" | sort | uniq -c | sort -nr
+```
+
+### **Log File Management**
+```bash
+# Check log file sizes
+ls -lh logs/*.log
+
+# View rotated logs
+ls -la logs/*.log.*
+
+# Check available disk space
+df -h logs/
+
+# Manual log cleanup (removes files >30 days)
+python3 -c "from src.logging_config import cleanup_old_logs; cleanup_old_logs('webui')"
+```
+
+## 🎛️ **Configuration Options**
+
+### **Log Levels**
+- **DEBUG**: Detailed debugging information (database sessions, query details)
+- **INFO**: General operational messages (requests, responses, timing)
+- **WARNING**: Warning messages (invalid parameters, deprecated features)
+- **ERROR**: Error messages (exceptions, failures)
+- **CRITICAL**: Critical errors (system failures)
+
+### **Customizing Log Retention**
+```python
+# Change retention period (default: 30 days)
+def cleanup_old_logs(service_name: str, days_to_keep: int = 30):
+    
+# Change rotation frequency (daily, weekly, monthly)
+file_handler = TimedRotatingFileHandler(
+    log_file, 
+    when='midnight',  # or 'W0' for weekly, 'M' for monthly
+    interval=1,       # every 1 day
+    backupCount=30    # keep 30 files
+)
+```
+
+### **Environment Variables**
+```bash
+# Set log level
+export FOSCAM_LOG_LEVEL=DEBUG
+
+# Custom log directory
+export FOSCAM_LOG_DIR=/custom/log/path
+```
+
+## 🚨 **Troubleshooting**
+
+### **Common Issues**
+1. **Permission Errors**: Ensure write permissions to `logs/` directory
+2. **Disk Space**: Monitor disk usage; logs auto-cleanup after 30 days
+3. **Missing Logs**: Check if services are running and logging_config is imported
+4. **Rotation Failures**: Verify file permissions and disk space
+
+### **Log File Not Rotating**
+```bash
+# Check if files are locked
+lsof logs/webui.log
+
+# Restart services to release file handles
 ./restart-webui.sh
 
-# Check service status
-systemctl --user status foscam-webui
-
-# View service logs
-journalctl --user -u foscam-webui -f
+# Manual rotation test
+python3 -c "import logging.handlers; h = logging.handlers.TimedRotatingFileHandler('test.log', when='S', interval=1); h.doRollover()"
 ```
 
-## 📈 Log Monitoring
+### **Performance Impact**
+- **Minimal CPU overhead**: Asynchronous logging
+- **Disk I/O**: Batched writes to reduce impact
+- **Memory usage**: Log messages are not buffered extensively
+- **Network impact**: None (local file logging only)
 
-### Key Metrics
-- **Log file sizes**: Monitor for unusual growth
-- **Error rates**: Check error logs for patterns
-- **Service health**: Monitor systemd service status
-- **Disk usage**: Ensure logs don't fill disk space
+## 📋 **Log Analysis Tips**
 
-### Monitoring Commands
+### **Finding Performance Issues**
 ```bash
-# Check log sizes
-./manage-logs.sh status
+# Slow requests (>1 second)
+grep "duration: [1-9]" logs/webui.log
 
-# Monitor errors
-./manage-logs.sh errors
+# Database performance
+grep "Database session" logs/webui.log | grep "duration:"
 
-# View service status
-systemctl --user status foscam-webui
-
-# Check disk usage
-df -h
+# Error patterns
+grep ERROR logs/webui_error.log | cut -d: -f4- | sort | uniq -c | sort -nr
 ```
 
-## ⚠️ Troubleshooting
-
-### Common Issues
-
-1. **Logs not rotating**
-   ```bash
-   # Check cron jobs
-   crontab -l
-   
-   # Test logrotate
-   ./run-logrotate.sh
-   ```
-
-2. **Logs growing too large**
-   ```bash
-   # Manual rotation
-   ./manage-logs.sh rotate
-   
-   # Clean old logs
-   ./manage-logs.sh clean
-   ```
-
-3. **Permission errors**
-   ```bash
-   # Fix permissions
-   chmod 644 logs/*.log
-   chmod 755 logs/
-   ```
-
-4. **Service not logging**
-   ```bash
-   # Check service status
-   systemctl --user status foscam-webui
-   
-   # Reload service
-   systemctl --user daemon-reload
-   systemctl --user restart foscam-webui
-   ```
-
-### Log Analysis
+### **Monitoring Dashboard Health**
 ```bash
-# Find errors in logs
-grep -i error logs/*.log
+# Recent successful requests
+grep "served successfully" logs/webui.log | tail -10
 
-# Check service startup
-journalctl --user -u foscam-webui --since "1 hour ago"
+# Request volume per hour
+grep "$(date +%Y-%m-%d)" logs/webui.log | cut -d' ' -f1-2 | cut -d: -f1-2 | uniq -c
 
-# Monitor log growth
-watch -n 5 'ls -lh logs/'
+# Error rate
+total=$(grep "$(date +%Y-%m-%d)" logs/webui.log | wc -l)
+errors=$(grep "$(date +%Y-%m-%d)" logs/webui_error.log | wc -l)
+echo "Error rate: $(echo "scale=2; $errors * 100 / $total" | bc)%"
 ```
 
-## 🔐 Security and Permissions
+## 🎯 **Best Practices**
 
-### File Permissions
-- **Log files**: 644 (readable by owner and group)
-- **Directories**: 755 (executable by all, writable by owner)
-- **Scripts**: 755 (executable)
+1. **Monitor log file sizes** regularly
+2. **Set up alerts** for error rate spikes
+3. **Use log levels appropriately** (avoid DEBUG in production)
+4. **Archive important logs** before cleanup
+5. **Monitor disk space** in `/logs` directory
+6. **Review error patterns** weekly
+7. **Test log rotation** during maintenance windows
 
-### Security Considerations
-- Logs may contain sensitive information
-- Regular cleanup prevents disk space issues
-- Compressed logs reduce storage requirements
-- File rotation prevents log tampering
+## 🔗 **Related Files**
 
-## 🚀 Future Enhancements
-
-### Planned Features
-1. **Centralized logging server**: Ship logs to external system
-2. **Real-time monitoring**: Alerts for critical errors
-3. **Log analysis**: Automated error pattern detection
-4. **Metrics collection**: Application performance metrics
-5. **Dashboard integration**: Log viewer in web UI
-
-### Extension Points
-- Add new services by using `setup_logger("service_name")`
-- Extend logrotate configuration for new log types
-- Add custom log analysis scripts
-- Integrate with monitoring systems
-
-## 📞 Support
-
-For issues or questions:
-1. Check logs: `./manage-logs.sh errors`
-2. Verify service status: `systemctl --user status foscam-webui`
-3. Review configuration: `./manage-logs.sh status`
-4. Test rotation: `./manage-logs.sh rotate`
-
----
-
-*Last updated: July 13, 2025* 
+- `src/logging_config.py` - Logging configuration and setup
+- `src/web_app.py` - Application with extensive logging integration
+- `nginx.conf` - Nginx logging configuration  
+- `restart-webui.sh` - Service startup script
+- `logs/` - All log files and rotated archives 
