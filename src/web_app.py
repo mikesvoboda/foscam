@@ -517,24 +517,21 @@ async def get_video_info(detection_id: int):
 # Markdown Documentation Endpoints
 @app.get("/docs/project-readme", response_class=HTMLResponse)
 async def serve_project_readme():
-    """Serve the main project README.md with architectural diagrams"""
+    """Serve the main project README.md with enhanced styling"""
     try:
-        # Always serve the project root README.md
-        readme_path = Path('README.md')
+        # Get the project root README.md
+        readme_path = Path(__file__).parent.parent / "README.md"
         
         if not readme_path.exists():
-            raise HTTPException(status_code=404, detail="Project README.md not found")
+            raise HTTPException(status_code=404, detail="README.md not found")
         
-        # Read and render markdown
+        # Read and render the markdown
         async with aiofiles.open(readme_path, 'r', encoding='utf-8') as f:
             markdown_content = await f.read()
         
-        # Render markdown to HTML with extensions
+        # Render markdown to HTML with extensions (added 'toc' back for anchor generation)
         md = markdown.Markdown(extensions=['codehilite', 'fenced_code', 'tables', 'toc'])
         html_content = md.convert(markdown_content)
-        
-        # Extract table of contents if available
-        toc_html = getattr(md, 'toc', '')
         
         # Create a proper HTML page with styling
         html_page = f"""
@@ -543,96 +540,87 @@ async def serve_project_readme():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project README.md - Foscam Documentation</title>
+    <title>Foscam Detection System - README</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <style>
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
             line-height: 1.6;
-            color: #333;
+            color: #24292e;
+            background-color: #ffffff;
             max-width: 1200px;
             margin: 0 auto;
-            padding: 2rem;
-            background: #f8f9fa;
+            padding: 20px;
         }}
         
-        .doc-container {{
+        .container {{
             background: white;
-            padding: 3rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            margin-bottom: 20px;
         }}
         
         h1, h2, h3, h4, h5, h6 {{
-            color: #2c3e50;
-            margin-top: 2rem;
-            margin-bottom: 1rem;
+            margin-top: 24px;
+            margin-bottom: 16px;
+            font-weight: 600;
+            line-height: 1.25;
         }}
         
-        h1 {{ border-bottom: 2px solid #3498db; padding-bottom: 0.5rem; }}
-        h2 {{ border-bottom: 1px solid #e1e8ed; padding-bottom: 0.3rem; }}
-        
-        code {{
-            background: #f1f3f4;
-            padding: 0.2rem 0.4rem;
-            border-radius: 3px;
-            font-family: 'Courier New', monospace;
-        }}
+        h1 {{ font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 10px; }}
+        h2 {{ font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 8px; }}
+        h3 {{ font-size: 1.25em; }}
         
         pre {{
-            background: #f8f9fa;
-            border: 1px solid #e1e8ed;
+            background-color: #f6f8fa;
             border-radius: 6px;
-            padding: 1rem;
-            overflow-x: auto;
+            font-size: 85%;
+            line-height: 1.45;
+            overflow: auto;
+            padding: 16px;
+        }}
+        
+        code {{
+            background-color: rgba(27,31,35,0.05);
+            border-radius: 3px;
+            font-size: 85%;
+            margin: 0;
+            padding: 0.2em 0.4em;
         }}
         
         pre code {{
-            background: none;
+            background-color: transparent;
+            border: 0;
+            display: inline;
+            line-height: inherit;
+            margin: 0;
+            overflow: visible;
             padding: 0;
-        }}
-        
-        blockquote {{
-            border-left: 4px solid #3498db;
-            margin: 1rem 0;
-            padding: 0.5rem 1rem;
-            background: #f8f9fa;
+            word-wrap: normal;
         }}
         
         table {{
             border-collapse: collapse;
             width: 100%;
-            margin: 1rem 0;
+            margin: 16px 0;
         }}
         
         th, td {{
-            border: 1px solid #e1e8ed;
-            padding: 0.75rem;
+            border: 1px solid #dfe2e5;
+            padding: 6px 13px;
             text-align: left;
         }}
         
         th {{
-            background: #f1f3f4;
+            background-color: #f6f8fa;
             font-weight: 600;
-        }}
-        
-        .doc-header {{
-            background: #2c3e50;
-            color: white;
-            padding: 1rem;
-            margin: -3rem -3rem 2rem -3rem;
-            border-radius: 8px 8px 0 0;
-        }}
-        
-        .doc-header h1 {{
-            margin: 0;
-            border: none;
-            color: white;
         }}
         
         .back-link {{
             display: inline-block;
-            margin-bottom: 1rem;
-            color: #3498db;
+            margin-bottom: 20px;
+            color: #0366d6;
             text-decoration: none;
             font-weight: 500;
         }}
@@ -641,136 +629,113 @@ async def serve_project_readme():
             text-decoration: underline;
         }}
         
-        /* Mermaid diagram support */
+        .content {{
+            margin-top: 20px;
+        }}
+        
+        /* Mermaid diagram styling */
         .mermaid {{
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
             text-align: center;
-            margin: 2rem 0;
-            background: #f8f9fa;
-            padding: 1rem;
-            border-radius: 8px;
-            border: 1px solid #e1e8ed;
         }}
         
-        /* Table of Contents */
-        .toc-container {{
-            background: #f8f9fa;
-            border: 1px solid #e1e8ed;
-            border-radius: 8px;
-            padding: 1.5rem;
-            margin: 2rem 0;
+        /* Enhanced code syntax highlighting */
+        .codehilite {{
+            background-color: #f6f8fa;
+            border-radius: 6px;
+            padding: 16px;
+            margin: 16px 0;
         }}
         
-        .toc-container h2 {{
-            margin-top: 0;
-            color: #2c3e50;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 0.5rem;
+        .codehilite pre {{
+            margin: 0;
+            background-color: transparent;
+            padding: 0;
         }}
         
-        .toc-container ul {{
-            list-style-type: none;
-            padding-left: 0;
-        }}
-        
-        .toc-container ul ul {{
-            padding-left: 1.5rem;
-        }}
-        
-        .toc-container a {{
-            color: #3498db;
-            text-decoration: none;
-            display: block;
-            padding: 0.25rem 0;
-        }}
-        
-        .toc-container a:hover {{
-            text-decoration: underline;
-            color: #2980b9;
+        /* Responsive design */
+        @media (max-width: 768px) {{
+            body {{
+                padding: 10px;
+            }}
+            
+            .container {{
+                padding: 20px;
+            }}
         }}
     </style>
-    <!-- Mermaid.js for diagrams -->
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-    <script>
-         mermaid.initialize({{ 
-             startOnLoad: true, 
-             theme: 'default',
-             themeVariables: {{
-                 primaryColor: '#3498db',
-                 primaryTextColor: '#2c3e50',
-                 primaryBorderColor: '#2980b9',
-                 lineColor: '#34495e'
-             }}
-         }});
-         
-         // Ensure mermaid diagrams are rendered after page load
-         document.addEventListener('DOMContentLoaded', function() {{
-             mermaid.run();
-         }});
-    </script>
 </head>
 <body>
-    <div class="doc-container">
-        <div class="doc-header">
-            <h1>📖 Project README.md</h1>
+    <div class="container">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #0366d6; margin: 0;">📚 Foscam Detection System Documentation</h1>
+            <p style="color: #586069; margin: 10px 0 0 0;">Comprehensive system documentation with architectural diagrams</p>
         </div>
         
         <a href="javascript:window.close()" class="back-link">← Close Window</a>
-        
-        {f'<div class="toc-container"><h2>📋 Table of Contents</h2>{toc_html}</div>' if toc_html else ''}
         
         <div class="content">
             {html_content}
         </div>
     </div>
 </body>
+<script>
+    // Initialize Mermaid with custom configuration
+    mermaid.initialize({{
+        startOnLoad: true,
+        theme: 'default',
+        themeVariables: {{
+            primaryColor: '#0366d6',
+            primaryTextColor: '#24292e',
+            primaryBorderColor: '#e1e4e8',
+            lineColor: '#d1d5da',
+            secondaryColor: '#f6f8fa',
+            tertiaryColor: '#fafbfc'
+        }}
+    }});
+</script>
 </html>
         """
         
         return HTMLResponse(content=html_page)
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error rendering project README: {str(e)}")
+        # logger.error(f"Error serving project README: {e}") # Original code had this line commented out
+        raise HTTPException(status_code=500, detail=f"Error loading README: {str(e)}")
 
 @app.get("/docs/{doc_path:path}", response_class=HTMLResponse)
 async def serve_markdown_doc(doc_path: str):
-    """Serve rendered markdown documentation files"""
+    """Serve markdown documentation with enhanced styling and mermaid support"""
     try:
-        # Security: Only allow markdown files and prevent directory traversal
-        if not doc_path.endswith('.md'):
-            doc_path += '.md'
+        # Security: Validate the path to prevent directory traversal
+        if ".." in doc_path or doc_path.startswith("/"):
+            raise HTTPException(status_code=400, detail="Invalid path")
         
-        # Construct safe file path
-        if doc_path.startswith('docs/'):
-            file_path = Path(doc_path)
-        else:
-            file_path = Path('docs') / doc_path
+        # Construct the full path to the documentation file
+        docs_dir = Path(__file__).parent.parent / "docs"
+        file_path = docs_dir / doc_path
         
-        # Security check: ensure the resolved path is within docs directory
-        resolved_path = file_path.resolve()
-        docs_dir = Path('docs').resolve()
+        # Ensure the file exists and is within the docs directory
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Documentation file not found")
         
-        if not str(resolved_path).startswith(str(docs_dir)):
-            raise HTTPException(status_code=403, detail="Access denied")
+        # Verify the resolved path is still within docs directory (security)
+        try:
+            file_path.resolve().relative_to(docs_dir.resolve())
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Access denied")
         
-        # Check if file exists
-        if not resolved_path.exists():
-            # Try README.md if no file specified or file not found
-            if doc_path == 'README.md' or not resolved_path.exists():
-                resolved_path = Path('README.md')
-        
-        if not resolved_path.exists():
-            raise HTTPException(status_code=404, detail="Documentation not found")
-        
-        # Read and render markdown
-        async with aiofiles.open(resolved_path, 'r', encoding='utf-8') as f:
+        # Read and render the markdown
+        async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
             markdown_content = await f.read()
         
-        # Render markdown to HTML with extensions
+        # Render markdown to HTML with extensions (added 'toc' back for anchor generation)
         md = markdown.Markdown(extensions=['codehilite', 'fenced_code', 'tables', 'toc'])
         html_content = md.convert(markdown_content)
-        
-        # Extract table of contents if available
-        toc_html = getattr(md, 'toc', '')
         
         # Create a proper HTML page with styling
         html_page = f"""
@@ -780,95 +745,86 @@ async def serve_markdown_doc(doc_path: str):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{doc_path} - Foscam Documentation</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <style>
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
             line-height: 1.6;
-            color: #333;
+            color: #24292e;
+            background-color: #ffffff;
             max-width: 1200px;
             margin: 0 auto;
-            padding: 2rem;
-            background: #f8f9fa;
+            padding: 20px;
         }}
         
-        .doc-container {{
+        .container {{
             background: white;
-            padding: 3rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            margin-bottom: 20px;
         }}
         
         h1, h2, h3, h4, h5, h6 {{
-            color: #2c3e50;
-            margin-top: 2rem;
-            margin-bottom: 1rem;
+            margin-top: 24px;
+            margin-bottom: 16px;
+            font-weight: 600;
+            line-height: 1.25;
         }}
         
-        h1 {{ border-bottom: 2px solid #3498db; padding-bottom: 0.5rem; }}
-        h2 {{ border-bottom: 1px solid #e1e8ed; padding-bottom: 0.3rem; }}
-        
-        code {{
-            background: #f1f3f4;
-            padding: 0.2rem 0.4rem;
-            border-radius: 3px;
-            font-family: 'Courier New', monospace;
-        }}
+        h1 {{ font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 10px; }}
+        h2 {{ font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 8px; }}
+        h3 {{ font-size: 1.25em; }}
         
         pre {{
-            background: #f8f9fa;
-            border: 1px solid #e1e8ed;
+            background-color: #f6f8fa;
             border-radius: 6px;
-            padding: 1rem;
-            overflow-x: auto;
+            font-size: 85%;
+            line-height: 1.45;
+            overflow: auto;
+            padding: 16px;
+        }}
+        
+        code {{
+            background-color: rgba(27,31,35,0.05);
+            border-radius: 3px;
+            font-size: 85%;
+            margin: 0;
+            padding: 0.2em 0.4em;
         }}
         
         pre code {{
-            background: none;
+            background-color: transparent;
+            border: 0;
+            display: inline;
+            line-height: inherit;
+            margin: 0;
+            overflow: visible;
             padding: 0;
-        }}
-        
-        blockquote {{
-            border-left: 4px solid #3498db;
-            margin: 1rem 0;
-            padding: 0.5rem 1rem;
-            background: #f8f9fa;
+            word-wrap: normal;
         }}
         
         table {{
             border-collapse: collapse;
             width: 100%;
-            margin: 1rem 0;
+            margin: 16px 0;
         }}
         
         th, td {{
-            border: 1px solid #e1e8ed;
-            padding: 0.75rem;
+            border: 1px solid #dfe2e5;
+            padding: 6px 13px;
             text-align: left;
         }}
         
         th {{
-            background: #f1f3f4;
+            background-color: #f6f8fa;
             font-weight: 600;
-        }}
-        
-        .doc-header {{
-            background: #2c3e50;
-            color: white;
-            padding: 1rem;
-            margin: -3rem -3rem 2rem -3rem;
-            border-radius: 8px 8px 0 0;
-        }}
-        
-        .doc-header h1 {{
-            margin: 0;
-            border: none;
-            color: white;
         }}
         
         .back-link {{
             display: inline-block;
-            margin-bottom: 1rem;
-            color: #3498db;
+            margin-bottom: 20px;
+            color: #0366d6;
             text-decoration: none;
             font-weight: 500;
         }}
@@ -877,88 +833,75 @@ async def serve_markdown_doc(doc_path: str):
             text-decoration: underline;
         }}
         
-                 /* Mermaid diagram support */
-         .mermaid {{
-             text-align: center;
-             margin: 2rem 0;
-             background: #f8f9fa;
-             padding: 1rem;
-             border-radius: 8px;
-             border: 1px solid #e1e8ed;
-         }}
-         
-         /* Table of Contents */
-         .toc-container {{
-             background: #f8f9fa;
-             border: 1px solid #e1e8ed;
-             border-radius: 8px;
-             padding: 1.5rem;
-             margin: 2rem 0;
-         }}
-         
-         .toc-container h2 {{
-             margin-top: 0;
-             color: #2c3e50;
-             border-bottom: 2px solid #3498db;
-             padding-bottom: 0.5rem;
-         }}
-         
-         .toc-container ul {{
-             list-style-type: none;
-             padding-left: 0;
-         }}
-         
-         .toc-container ul ul {{
-             padding-left: 1.5rem;
-         }}
-         
-         .toc-container a {{
-             color: #3498db;
-             text-decoration: none;
-             display: block;
-             padding: 0.25rem 0;
-         }}
-         
-         .toc-container a:hover {{
-             text-decoration: underline;
-             color: #2980b9;
-         }}
-     </style>
-     <!-- Mermaid.js for diagrams -->
-     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-     <script>
-         mermaid.initialize({{ 
-             startOnLoad: true, 
-             theme: 'default',
-             themeVariables: {{
-                 primaryColor: '#3498db',
-                 primaryTextColor: '#2c3e50',
-                 primaryBorderColor: '#2980b9',
-                 lineColor: '#34495e'
-             }}
-         }});
-         
-         // Ensure mermaid diagrams are rendered after page load
-         document.addEventListener('DOMContentLoaded', function() {{
-             mermaid.run();
-         }});
-     </script>
+        .content {{
+            margin-top: 20px;
+        }}
+        
+        /* Mermaid diagram styling */
+        .mermaid {{
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+        }}
+        
+        /* Enhanced code syntax highlighting */
+        .codehilite {{
+            background-color: #f6f8fa;
+            border-radius: 6px;
+            padding: 16px;
+            margin: 16px 0;
+        }}
+        
+        .codehilite pre {{
+            margin: 0;
+            background-color: transparent;
+            padding: 0;
+        }}
+        
+        /* Responsive design */
+        @media (max-width: 768px) {{
+            body {{
+                padding: 10px;
+            }}
+            
+            .container {{
+                padding: 20px;
+            }}
+        }}
+    </style>
 </head>
 <body>
-    <div class="doc-container">
-        <div class="doc-header">
-            <h1>📖 {doc_path}</h1>
+    <div class="container">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #0366d6; margin: 0;">📚 Foscam Documentation</h1>
+            <p style="color: #586069; margin: 10px 0 0 0;">{doc_path}</p>
         </div>
         
-                 <a href="javascript:window.close()" class="back-link">← Close Window</a>
-         
-         {f'<div class="toc-container"><h2>📋 Table of Contents</h2>{toc_html}</div>' if toc_html else ''}
-         
-         <div class="content">
-             {html_content}
-         </div>
+        <a href="/" class="back-link">← Back to Dashboard</a>
+        
+        <div class="content">
+            {html_content}
+        </div>
     </div>
 </body>
+<script>
+    // Initialize Mermaid with custom configuration
+    mermaid.initialize({{
+        startOnLoad: true,
+        theme: 'default',
+        themeVariables: {{
+            primaryColor: '#0366d6',
+            primaryTextColor: '#24292e',
+            primaryBorderColor: '#e1e4e8',
+            lineColor: '#d1d5da',
+            secondaryColor: '#f6f8fa',
+            tertiaryColor: '#fafbfc'
+        }}
+    }});
+</script>
 </html>
         """
         
@@ -967,7 +910,8 @@ async def serve_markdown_doc(doc_path: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error rendering documentation: {str(e)}")
+        # logger.error(f"Error serving markdown documentation {doc_path}: {e}") # Original code had this line commented out
+        raise HTTPException(status_code=500, detail=f"Error loading documentation: {str(e)}")
 
 # GPU Monitoring API Endpoints
 @app.get("/api/gpu/current")

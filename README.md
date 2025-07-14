@@ -2,7 +2,36 @@
 
 **Advanced surveillance system that processes Foscam camera data with BLIP-2 T5-XL vision-language model for comprehensive scene analysis, object detection, and intelligent alerting. Now featuring professional nginx integration, real-time GPU monitoring, and enhanced detection visualization.**
 
-[TOC]
+## 📋 Table of Contents
+
+- [🚀 Recent Major Updates](#recent-major-updates)
+- [🏗️ System Architecture](#system-architecture)
+- [📁 Project Structure](#project-structure)
+- [🏗️ Detailed System Architecture & Code Flow](#detailed-system-architecture-code-flow)
+  - [🗄️ Optimized Database Architecture](#optimized-database-architecture)
+  - [🔄 Component Interaction & Function Calls](#component-interaction-function-calls)
+  - [📊 Data Flow & Processing Pipeline](#data-flow-processing-pipeline)
+  - [🤖 AI Processing Workflow](#ai-processing-workflow)
+  - [🗄️ Database Interaction Flow](#database-interaction-flow)
+  - [🚀 End-to-End Execution Flow](#end-to-end-execution-flow)
+  - [📝 Function Call Hierarchy](#function-call-hierarchy)
+- [✨ Key Features](#key-features)
+- [🚀 Quick Start](#quick-start)
+- [🎯 AI Analysis Capabilities](#ai-analysis-capabilities)
+- [🎨 Detection Display Features](#detection-display-features)
+- [📊 GPU Monitoring Features](#gpu-monitoring-features)
+- [🎬 Video Thumbnail System](#video-thumbnail-system)
+- [🔧 Configuration](#configuration)
+- [💾 Hardware Requirements](#hardware-requirements)
+- [🔄 Service Management](#service-management)
+- [🎯 API Endpoints](#api-endpoints)
+- [🧪 Testing & Development](#testing-development)
+- [🔍 Troubleshooting](#troubleshooting)
+- [📚 Documentation](#documentation)
+- [🔮 Future Enhancements](#future-enhancements)
+- [🤝 Contributing](#contributing)
+- [📜 License](#license)
+- [🔗 Access Points](#access-points)
 
 ## 🚀 **Recent Major Updates**
 
