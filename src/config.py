@@ -33,7 +33,7 @@ DATABASE_URL = "sqlite+aiosqlite:///./foscam_detections.db"
 
 # Web server
 HOST = "0.0.0.0"
-PORT = 8000
+PORT = 7999
 
 # Foscam-specific file extensions and patterns
 IMAGE_EXTENSIONS = {".jpg", ".jpeg"}

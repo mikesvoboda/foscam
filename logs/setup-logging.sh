@@ -6,9 +6,9 @@
 echo "🗂️ Setting up Foscam Logging System..."
 
 # Get the absolute path of the foscam directory
-FOSCAM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FOSCAM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOGS_DIR="$FOSCAM_DIR/logs"
-LOGROTATE_CONFIG="$FOSCAM_DIR/logrotate.conf"
+LOGROTATE_CONFIG="$LOGS_DIR/logrotate.conf"
 
 # Create logs directory
 echo "📁 Creating logs directory..."
@@ -20,7 +20,7 @@ chmod 755 "$LOGS_DIR"
 # Test logging configuration
 echo "🧪 Testing logging configuration..."
 cd "$FOSCAM_DIR"
-python logging_config.py
+python src/logging_config.py
 
 # Set up logrotate
 echo "🔄 Setting up log rotation..."

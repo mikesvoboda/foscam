@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/static/css/main.css">
     <link rel="stylesheet" href="/static/css/heatmap.css">
     <link rel="stylesheet" href="/static/css/camera-filter.css">
+    <link rel="stylesheet" href="/static/css/gpu-metrics.css">
 </head>
 <body>
     <div class="header">
@@ -36,6 +37,11 @@
             </div>
         </div>
         
+        <!-- GPU Performance Monitor -->
+        <div id="gpuComponent">
+            <!-- This will be loaded from the component file -->
+        </div>
+        
         <!-- Enhanced Activity Heatmap -->
         <div id="heatmapComponent">
             <!-- This will be loaded from the component file -->
@@ -57,26 +63,14 @@
             </div>
         </div>
         
-        <!-- Detections Table -->
+        <!-- Detections Container (Card Layout) -->
         <div class="detections-table">
             <div class="table-header">
                 Recent Detections
             </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Timestamp</th>
-                        <th>Camera</th>
-                        <th>Type</th>
-                        <th>Description</th>
-                        <th>Confidence</th>
-                        <th>Media</th>
-                    </tr>
-                </thead>
-                <tbody id="detectionsTableBody">
-                    <!-- Detections will be populated dynamically -->
-                </tbody>
-            </table>
+            <div class="detections-container" id="detectionsContainer">
+                <!-- Detection cards will be populated dynamically -->
+            </div>
         </div>
     </div>
     
@@ -84,12 +78,18 @@
     <script src="/static/js/api.js"></script>
     <script src="/static/js/heatmap.js"></script>
     <script src="/static/js/camera-filter.js"></script>
+    <script src="/static/js/gpu-metrics.js"></script>
     <script src="/static/js/main.js"></script>
     
     <script>
         // Load component templates
         async function loadComponents() {
             try {
+                // Load GPU component
+                const gpuResponse = await fetch('/static/components/gpu-metrics-component.html');
+                const gpuHTML = await gpuResponse.text();
+                document.getElementById('gpuComponent').innerHTML = gpuHTML;
+                
                 // Load heatmap component
                 const heatmapResponse = await fetch('/static/components/heatmap-component.html');
                 const heatmapHTML = await heatmapResponse.text();
@@ -108,8 +108,31 @@
         
         // Load components before initializing the app
         document.addEventListener('DOMContentLoaded', async () => {
-            await loadComponents();
-            // Main app initialization will happen after components are loaded
+            try {
+                console.log('Loading components...');
+                await loadComponents();
+                
+                console.log('Creating module instances...');
+                // Create module instances and assign to window
+                window.gpuMetrics = new GPUMetrics();
+                window.cameraFilter = new CameraFilter();
+                window.mainApp = new MainApp();
+                
+                console.log('Initializing main application...');
+                // Initialize the main application
+                await window.mainApp.initialize();
+                
+                console.log('Dashboard initialization complete');
+            } catch (error) {
+                console.error('Error during dashboard initialization:', error);
+                // Show a less alarming message since the app still works
+                setTimeout(() => {
+                    const errorDiv = document.querySelector('.error-message');
+                    if (errorDiv) {
+                        errorDiv.style.display = 'none';
+                    }
+                }, 5000); // Hide error after 5 seconds
+            }
         });
     </script>
 </body>

@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Query, HTTPException, Depends
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func, desc
@@ -12,6 +12,8 @@ import os
 # Import our models
 from models import Base, Detection, Camera, AlertType, initialize_alert_types
 from config import DATABASE_URL, HOST, PORT, FOSCAM_DIR
+from video_converter import video_converter
+from gpu_monitor import gpu_monitor
 
 # Database imports
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -373,6 +375,173 @@ async def get_stats(
                 "total": total_count
             }
         }
+
+@app.get("/api/video/convert/{detection_id}")
+async def convert_video(detection_id: int):
+    """Convert a video to browser-friendly format."""
+    async with SessionLocal() as session:
+        # Get detection record
+        result = await session.execute(
+            select(Detection).where(Detection.id == detection_id)
+        )
+        detection = result.scalar_one_or_none()
+        
+        if not detection:
+            raise HTTPException(status_code=404, detail="Detection not found")
+        
+        if detection.media_type != 'video':
+            raise HTTPException(status_code=400, detail="Detection is not a video")
+        
+        # Get original video path
+        original_path = Path(detection.filepath)
+        if not original_path.exists():
+            raise HTTPException(status_code=404, detail="Original video file not found")
+        
+        # Convert video
+        result = await video_converter.convert_video(original_path)
+        
+        if result["success"]:
+            return {
+                "success": True,
+                "detection_id": detection_id,
+                "converted": not result.get("cached", False),
+                "conversion_time": result.get("conversion_time"),
+                "file_size": result["file_size"],
+                "original_size": result.get("original_size"),
+                "converted_url": f"/api/video/stream/{detection_id}"
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+
+@app.get("/api/video/stream/{detection_id}")
+async def stream_video(detection_id: int):
+    """Stream converted video file"""
+    # Get detection
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            select(Detection).filter(Detection.id == detection_id)
+        )
+        detection = result.scalar_one_or_none()
+        
+        if not detection:
+            raise HTTPException(status_code=404, detail="Detection not found")
+        
+        original_path = Path(detection.filepath)
+        converted_path = video_converter.get_converted_path(original_path)
+        
+        if not converted_path.exists():
+            raise HTTPException(status_code=404, detail="Converted video not found")
+        
+        return FileResponse(converted_path)
+
+@app.get("/api/video/thumbnail/{detection_id}")
+async def get_video_thumbnail(detection_id: int):
+    """Get or generate video thumbnail"""
+    # Get detection
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            select(Detection).filter(Detection.id == detection_id)
+        )
+        detection = result.scalar_one_or_none()
+        
+        if not detection:
+            raise HTTPException(status_code=404, detail="Detection not found")
+        
+        if detection.media_type != 'video':
+            raise HTTPException(status_code=400, detail="Detection is not a video")
+        
+        original_path = Path(detection.filepath)
+        thumbnail_path = video_converter.get_thumbnail_path(original_path)
+        
+        # Generate thumbnail if it doesn't exist
+        if not thumbnail_path.exists():
+            result = await video_converter.generate_thumbnail(original_path)
+            if not result['success']:
+                raise HTTPException(status_code=500, detail=f"Thumbnail generation failed: {result['error']}")
+        
+        return FileResponse(thumbnail_path, media_type="image/jpeg")
+
+@app.get("/thumbnails/{filename:path}")
+async def serve_thumbnail(filename: str):
+    """Serve video thumbnail files"""
+    thumbnail_path = video_converter.thumbnail_dir / filename
+    
+    if not thumbnail_path.exists():
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    
+    return FileResponse(thumbnail_path, media_type="image/jpeg")
+
+@app.get("/api/video/info/{detection_id}")
+async def get_video_info(detection_id: int):
+    """Get information about a video and its conversion status."""
+    async with SessionLocal() as session:
+        # Get detection record
+        result = await session.execute(
+            select(Detection).where(Detection.id == detection_id)
+        )
+        detection = result.scalar_one_or_none()
+        
+        if not detection:
+            raise HTTPException(status_code=404, detail="Detection not found")
+        
+        if detection.media_type != 'video':
+            raise HTTPException(status_code=400, detail="Detection is not a video")
+        
+        # Get original video path
+        original_path = Path(detection.filepath)
+        if not original_path.exists():
+            raise HTTPException(status_code=404, detail="Original video file not found")
+        
+        # Check conversion status
+        is_converted = video_converter.is_already_converted(original_path)
+        original_info = video_converter.get_video_info(original_path)
+        
+        response = {
+            "detection_id": detection_id,
+            "filename": detection.filename,
+            "original_path": str(original_path),
+            "is_converted": is_converted,
+            "original_info": original_info
+        }
+        
+        if is_converted:
+            converted_path = video_converter.get_converted_path(original_path)
+            converted_info = video_converter.get_video_info(converted_path)
+            response["converted_info"] = converted_info
+            response["converted_url"] = f"/api/video/stream/{detection_id}"
+        
+        return response
+
+# GPU Monitoring API Endpoints
+@app.get("/api/gpu/current")
+async def get_current_gpu_metrics():
+    """Get current GPU metrics"""
+    try:
+        metrics = gpu_monitor.get_latest_metrics()
+        if metrics:
+            return {"success": True, "data": metrics}
+        else:
+            return {"success": False, "error": "No GPU metrics available"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.get("/api/gpu/history")
+async def get_gpu_history(minutes: int = Query(5, ge=1, le=60)):
+    """Get GPU metrics history for the last N minutes"""
+    try:
+        history = gpu_monitor.get_metrics_history(minutes)
+        return {"success": True, "data": history}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.get("/api/gpu/stats")
+async def get_gpu_stats():
+    """Get GPU summary statistics"""
+    try:
+        stats = gpu_monitor.get_summary_stats()
+        return {"success": True, "data": stats}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn

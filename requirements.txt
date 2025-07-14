@@ -11,7 +11,8 @@ accelerate>=0.20.0         # Model optimization
 bitsandbytes>=0.40.0       # 8-bit quantization
 
 # GPU monitoring
-nvidia-ml-py3>=7.352.0     # NVIDIA GPU monitoring (optional but recommended)
+pynvml>=11.5.0             # NVIDIA GPU monitoring (primary choice)
+nvidia-ml-py3>=7.352.0     # NVIDIA GPU monitoring (alternative/fallback)
 
 # Web interface and storage
 fastapi>=0.100.0           # Web API

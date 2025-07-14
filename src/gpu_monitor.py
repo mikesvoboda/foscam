@@ -1,313 +1,363 @@
 #!/usr/bin/env python3
 """
-GPU Performance Monitor for Camera Detection System
+GPU Monitoring Module for Foscam Detection Dashboard
 
-Monitors GPU memory usage, performance metrics, and system limits.
-Provides logging and alerting for VRAM usage with BLIP-2 T5-XL.
+Collects GPU metrics similar to Green with Envy, storing 5 minutes of data.
+Supports both NVIDIA and AMD GPUs.
 """
 
-import torch
-import psutil
 import time
-import logging
-from typing import Dict, Optional, List
-from dataclasses import dataclass
-from datetime import datetime
+import json
+import subprocess
 import threading
-import queue
+from datetime import datetime, timedelta
+from collections import deque
+from typing import Dict, List, Optional, Any
+import asyncio
+from pathlib import Path
 
-logger = logging.getLogger(__name__)
+# Try to import GPU libraries, fallback gracefully
+try:
+    import pynvml
+    NVIDIA_AVAILABLE = True
+except ImportError:
+    NVIDIA_AVAILABLE = False
 
-@dataclass
+try:
+    import pyamdgpuinfo
+    AMD_AVAILABLE = True
+except ImportError:
+    AMD_AVAILABLE = False
+
 class GPUMetrics:
-    """GPU performance metrics at a point in time."""
-    timestamp: datetime
-    gpu_name: str
-    total_memory_gb: float
-    allocated_memory_gb: float
-    reserved_memory_gb: float
-    free_memory_gb: float
-    memory_utilization_pct: float
-    gpu_utilization_pct: Optional[float]
-    temperature_c: Optional[float]
-    power_usage_w: Optional[float]
-
-class GPUMonitor:
-    """Monitors GPU performance and memory usage."""
-    
-    def __init__(self, warning_threshold_pct: float = 85.0, critical_threshold_pct: float = 95.0):
-        """
-        Initialize GPU monitor.
+    """Container for GPU metrics at a specific timestamp"""
+    def __init__(self, timestamp: datetime):
+        self.timestamp = timestamp
+        self.gpu_utilization = 0.0  # %
+        self.memory_used = 0  # MB
+        self.memory_total = 0  # MB
+        self.memory_utilization = 0.0  # %
+        self.temperature = 0.0  # °C
+        self.power_usage = 0.0  # W
+        self.power_limit = 0.0  # W
+        self.fan_speed = 0.0  # %
+        self.core_clock = 0  # MHz
+        self.memory_clock = 0  # MHz
+        self.gpu_name = "Unknown GPU"
+        self.driver_version = "Unknown"
         
-        Args:
-            warning_threshold_pct: Warning threshold for memory usage (%)
-            critical_threshold_pct: Critical threshold for memory usage (%)
-        """
-        self.warning_threshold = warning_threshold_pct
-        self.critical_threshold = critical_threshold_pct
-        self.monitoring = False
-        self.metrics_history: List[GPUMetrics] = []
-        self.monitor_thread: Optional[threading.Thread] = None
-        self.metrics_queue = queue.Queue()
-        
-        # Check if CUDA is available
-        if not torch.cuda.is_available():
-            logger.warning("CUDA not available - GPU monitoring disabled")
-            self.cuda_available = False
-            return
-        
-        self.cuda_available = True
-        self.device_count = torch.cuda.device_count()
-        self.device_properties = torch.cuda.get_device_properties(0)
-        
-        logger.info(f"GPU Monitor initialized for: {self.device_properties.name}")
-        logger.info(f"Total VRAM: {self.device_properties.total_memory / 1024**3:.1f}GB")
-        logger.info(f"Warning threshold: {warning_threshold_pct}% ({self.device_properties.total_memory * warning_threshold_pct / 100 / 1024**3:.1f}GB)")
-        logger.info(f"Critical threshold: {critical_threshold_pct}% ({self.device_properties.total_memory * critical_threshold_pct / 100 / 1024**3:.1f}GB)")
-
-    def get_current_metrics(self) -> Optional[GPUMetrics]:
-        """Get current GPU metrics."""
-        if not self.cuda_available:
-            return None
-        
-        try:
-            # Basic CUDA metrics
-            total_memory = self.device_properties.total_memory
-            allocated_memory = torch.cuda.memory_allocated(0)
-            reserved_memory = torch.cuda.memory_reserved(0)
-            free_memory = total_memory - reserved_memory
-            
-            # Convert to GB
-            total_gb = total_memory / 1024**3
-            allocated_gb = allocated_memory / 1024**3
-            reserved_gb = reserved_memory / 1024**3
-            free_gb = free_memory / 1024**3
-            
-            memory_utilization = (reserved_memory / total_memory) * 100
-            
-            # Try to get additional metrics (may not be available on all systems)
-            gpu_utilization = None
-            temperature = None
-            power_usage = None
-            
-            try:
-                import nvidia_ml_py3 as nvml
-                nvml.nvmlInit()
-                handle = nvml.nvmlDeviceGetHandleByIndex(0)
-                
-                # GPU utilization
-                utilization = nvml.nvmlDeviceGetUtilizationRates(handle)
-                gpu_utilization = utilization.gpu
-                
-                # Temperature
-                temperature = nvml.nvmlDeviceGetTemperature(handle, nvml.NVML_TEMPERATURE_GPU)
-                
-                # Power usage
-                power_usage = nvml.nvmlDeviceGetPowerUsage(handle) / 1000.0  # Convert to watts
-                
-            except ImportError:
-                logger.debug("nvidia-ml-py3 not available - limited GPU metrics")
-            except Exception as e:
-                logger.debug(f"Could not get extended GPU metrics: {e}")
-            
-            return GPUMetrics(
-                timestamp=datetime.now(),
-                gpu_name=self.device_properties.name,
-                total_memory_gb=total_gb,
-                allocated_memory_gb=allocated_gb,
-                reserved_memory_gb=reserved_gb,
-                free_memory_gb=free_gb,
-                memory_utilization_pct=memory_utilization,
-                gpu_utilization_pct=gpu_utilization,
-                temperature_c=temperature,
-                power_usage_w=power_usage
-            )
-            
-        except Exception as e:
-            logger.error(f"Error getting GPU metrics: {e}")
-            return None
-
-    def log_current_status(self, context: str = ""):
-        """Log current GPU status with optional context."""
-        metrics = self.get_current_metrics()
-        if not metrics:
-            return
-        
-        # Determine log level based on memory usage
-        if metrics.memory_utilization_pct >= self.critical_threshold:
-            log_level = logging.CRITICAL
-            status = "CRITICAL"
-        elif metrics.memory_utilization_pct >= self.warning_threshold:
-            log_level = logging.WARNING
-            status = "WARNING"
-        else:
-            log_level = logging.INFO
-            status = "OK"
-        
-        context_str = f" ({context})" if context else ""
-        
-        # Basic memory info
-        logger.log(log_level, 
-            f"GPU Memory{context_str}: {metrics.reserved_memory_gb:.1f}GB used / "
-            f"{metrics.total_memory_gb:.1f}GB total ({metrics.memory_utilization_pct:.1f}%) - {status}"
-        )
-        
-        # Detailed breakdown
-        logger.info(
-            f"GPU Details{context_str}: Allocated: {metrics.allocated_memory_gb:.1f}GB, "
-            f"Reserved: {metrics.reserved_memory_gb:.1f}GB, Free: {metrics.free_memory_gb:.1f}GB"
-        )
-        
-        # Extended metrics if available
-        if metrics.gpu_utilization_pct is not None:
-            logger.info(f"GPU Utilization{context_str}: {metrics.gpu_utilization_pct}%")
-        
-        if metrics.temperature_c is not None:
-            logger.info(f"GPU Temperature{context_str}: {metrics.temperature_c}°C")
-        
-        if metrics.power_usage_w is not None:
-            logger.info(f"GPU Power Usage{context_str}: {metrics.power_usage_w:.1f}W")
-        
-        # Store metrics
-        self.metrics_history.append(metrics)
-        
-        # Keep only last 1000 entries to prevent memory bloat
-        if len(self.metrics_history) > 1000:
-            self.metrics_history = self.metrics_history[-1000:]
-
-    def check_memory_limits(self) -> Dict[str, bool]:
-        """Check if we're approaching memory limits."""
-        metrics = self.get_current_metrics()
-        if not metrics:
-            return {"warning": False, "critical": False, "available": False}
-        
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert metrics to dictionary"""
         return {
-            "warning": metrics.memory_utilization_pct >= self.warning_threshold,
-            "critical": metrics.memory_utilization_pct >= self.critical_threshold,
-            "available": True
+            'timestamp': self.timestamp.isoformat(),
+            'gpu_utilization': self.gpu_utilization,
+            'memory_used': self.memory_used,
+            'memory_total': self.memory_total,
+            'memory_utilization': self.memory_utilization,
+            'temperature': self.temperature,
+            'power_usage': self.power_usage,
+            'power_limit': self.power_limit,
+            'fan_speed': self.fan_speed,
+            'core_clock': self.core_clock,
+            'memory_clock': self.memory_clock,
+            'gpu_name': self.gpu_name,
+            'driver_version': self.driver_version
         }
 
-    def suggest_optimizations(self) -> List[str]:
-        """Suggest optimizations based on current memory usage."""
-        metrics = self.get_current_metrics()
-        if not metrics:
-            return ["GPU monitoring not available"]
+class GPUMonitor:
+    """GPU monitoring service that tracks metrics for 5 minutes"""
+    
+    def __init__(self, update_interval: float = 1.0):
+        self.update_interval = update_interval
+        self.metrics_history = deque(maxlen=300)  # 5 minutes at 1 second intervals
+        self.is_running = False
+        self.monitor_thread = None
+        self.gpu_type = None
+        self.gpu_count = 0
+        self.gpu_handles = []
         
-        suggestions = []
+        # Initialize GPU libraries
+        self._initialize_gpu_libraries()
+    
+    def _initialize_gpu_libraries(self):
+        """Initialize available GPU libraries"""
+        # Try NVIDIA first
+        if NVIDIA_AVAILABLE:
+            try:
+                pynvml.nvmlInit()
+                self.gpu_count = pynvml.nvmlDeviceGetCount()
+                self.gpu_type = "NVIDIA"
+                
+                # Get GPU handles
+                for i in range(self.gpu_count):
+                    handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                    self.gpu_handles.append(handle)
+                    
+                print(f"Initialized NVIDIA GPU monitoring: {self.gpu_count} GPU(s)")
+                return
+            except Exception as e:
+                print(f"Failed to initialize NVIDIA GPU monitoring: {e}")
         
-        if metrics.memory_utilization_pct >= self.critical_threshold:
-            suggestions.extend([
-                "CRITICAL: Reduce BATCH_SIZE to 1",
-                "Consider switching to smaller model (blip2-opt-2.7b)",
-                "Increase VIDEO_SAMPLE_RATE to process fewer frames",
-                "Close other GPU applications",
-                "Restart system to clear GPU memory fragmentation"
-            ])
-        elif metrics.memory_utilization_pct >= self.warning_threshold:
-            suggestions.extend([
-                "WARNING: Monitor memory usage closely",
-                "Consider reducing BATCH_SIZE",
-                "Increase VIDEO_SAMPLE_RATE for videos",
-                "Clear GPU cache with torch.cuda.empty_cache()"
-            ])
+        # Try AMD
+        if AMD_AVAILABLE:
+            try:
+                # AMD GPU initialization would go here
+                self.gpu_type = "AMD"
+                print("AMD GPU monitoring not fully implemented yet")
+                return
+            except Exception as e:
+                print(f"Failed to initialize AMD GPU monitoring: {e}")
+        
+        # Fallback to system commands
+        self.gpu_type = "SYSTEM"
+        print("Using system command fallback for GPU monitoring")
+    
+    def _get_nvidia_metrics(self) -> Optional[GPUMetrics]:
+        """Get metrics from NVIDIA GPU"""
+        if not self.gpu_handles:
+            return None
+            
+        try:
+            # For now, just monitor the first GPU
+            handle = self.gpu_handles[0]
+            metrics = GPUMetrics(datetime.now())
+            
+            # GPU Name
+            gpu_name = pynvml.nvmlDeviceGetName(handle)
+            metrics.gpu_name = gpu_name.decode('utf-8') if isinstance(gpu_name, bytes) else gpu_name
+            
+            # Driver Version
+            try:
+                driver_version = pynvml.nvmlSystemGetDriverVersion()
+                metrics.driver_version = driver_version.decode('utf-8') if isinstance(driver_version, bytes) else driver_version
+            except:
+                metrics.driver_version = "Unknown"
+            
+            # GPU Utilization
+            try:
+                utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                metrics.gpu_utilization = utilization.gpu
+                metrics.memory_utilization = utilization.memory
+            except:
+                pass
+            
+            # Memory Info
+            try:
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                metrics.memory_used = mem_info.used // (1024 * 1024)  # Convert to MB
+                metrics.memory_total = mem_info.total // (1024 * 1024)  # Convert to MB
+                if metrics.memory_total > 0:
+                    metrics.memory_utilization = (metrics.memory_used / metrics.memory_total) * 100
+            except:
+                pass
+            
+            # Temperature
+            try:
+                temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+                metrics.temperature = temp
+            except:
+                pass
+            
+            # Power Usage
+            try:
+                power = pynvml.nvmlDeviceGetPowerUsage(handle)
+                metrics.power_usage = power / 1000.0  # Convert to W
+            except:
+                pass
+            
+            # Power Limit
+            try:
+                power_limit = pynvml.nvmlDeviceGetPowerManagementLimitConstraints(handle)
+                metrics.power_limit = power_limit[1] / 1000.0  # Max power limit in W
+            except:
+                pass
+            
+            # Fan Speed
+            try:
+                fan_speed = pynvml.nvmlDeviceGetFanSpeed(handle)
+                metrics.fan_speed = fan_speed
+            except:
+                pass
+            
+            # Clock speeds
+            try:
+                core_clock = pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_GRAPHICS)
+                metrics.core_clock = core_clock
+                
+                mem_clock = pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_MEM)
+                metrics.memory_clock = mem_clock
+            except:
+                pass
+            
+            return metrics
+            
+        except Exception as e:
+            print(f"Error getting NVIDIA metrics: {e}")
+            return None
+    
+    def _get_system_metrics(self) -> Optional[GPUMetrics]:
+        """Get metrics using system commands as fallback"""
+        try:
+            metrics = GPUMetrics(datetime.now())
+            
+            # Try nvidia-smi for NVIDIA
+            try:
+                result = subprocess.run([
+                    'nvidia-smi', 
+                    '--query-gpu=name,driver_version,temperature.gpu,utilization.gpu,utilization.memory,memory.used,memory.total,power.draw,power.limit,fan.speed,clocks.gr,clocks.mem',
+                    '--format=csv,noheader,nounits'
+                ], capture_output=True, text=True, timeout=5)
+                
+                if result.returncode == 0:
+                    lines = result.stdout.strip().split('\n')
+                    if lines:
+                        data = lines[0].split(', ')
+                        if len(data) >= 12:
+                            metrics.gpu_name = data[0]
+                            metrics.driver_version = data[1]
+                            metrics.temperature = float(data[2]) if data[2] != '[N/A]' else 0.0
+                            metrics.gpu_utilization = float(data[3]) if data[3] != '[N/A]' else 0.0
+                            metrics.memory_utilization = float(data[4]) if data[4] != '[N/A]' else 0.0
+                            metrics.memory_used = int(data[5]) if data[5] != '[N/A]' else 0
+                            metrics.memory_total = int(data[6]) if data[6] != '[N/A]' else 0
+                            metrics.power_usage = float(data[7]) if data[7] != '[N/A]' else 0.0
+                            metrics.power_limit = float(data[8]) if data[8] != '[N/A]' else 0.0
+                            metrics.fan_speed = float(data[9]) if data[9] != '[N/A]' else 0.0
+                            metrics.core_clock = int(data[10]) if data[10] != '[N/A]' else 0
+                            metrics.memory_clock = int(data[11]) if data[11] != '[N/A]' else 0
+                            
+                            return metrics
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+                pass
+            
+            # Try radeontop for AMD
+            try:
+                result = subprocess.run(['radeontop', '-d', '-', '-l', '1'], 
+                                     capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    # Parse radeontop output
+                    # This is a simplified parser - you'd need to implement full parsing
+                    metrics.gpu_name = "AMD GPU"
+                    return metrics
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+                pass
+            
+            return metrics
+            
+        except Exception as e:
+            print(f"Error getting system metrics: {e}")
+            return None
+    
+    def get_current_metrics(self) -> Optional[GPUMetrics]:
+        """Get current GPU metrics"""
+        if self.gpu_type == "NVIDIA" and NVIDIA_AVAILABLE:
+            return self._get_nvidia_metrics()
         else:
-            suggestions.append("Memory usage looks healthy")
-        
-        return suggestions
-
-    def start_monitoring(self, interval_seconds: float = 30.0):
-        """Start continuous GPU monitoring in background thread."""
-        if not self.cuda_available:
-            logger.warning("Cannot start GPU monitoring - CUDA not available")
+            return self._get_system_metrics()
+    
+    def start_monitoring(self):
+        """Start the GPU monitoring thread"""
+        if self.is_running:
             return
-        
-        if self.monitoring:
-            logger.warning("GPU monitoring already running")
-            return
-        
-        self.monitoring = True
-        
-        def monitor_loop():
-            logger.info(f"Started GPU monitoring (interval: {interval_seconds}s)")
-            while self.monitoring:
-                try:
-                    self.log_current_status("Monitor")
-                    
-                    # Check for alerts
-                    limits = self.check_memory_limits()
-                    if limits["critical"]:
-                        logger.critical("GPU memory usage is CRITICAL - system may crash!")
-                        suggestions = self.suggest_optimizations()
-                        for suggestion in suggestions[:3]:  # Show top 3 suggestions
-                            logger.critical(f"SUGGESTION: {suggestion}")
-                    elif limits["warning"]:
-                        logger.warning("GPU memory usage approaching limits")
-                    
-                    time.sleep(interval_seconds)
-                    
-                except Exception as e:
-                    logger.error(f"Error in GPU monitoring loop: {e}")
-                    time.sleep(interval_seconds)
-        
-        self.monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
+            
+        self.is_running = True
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.monitor_thread.start()
-
+        print("GPU monitoring started")
+    
     def stop_monitoring(self):
-        """Stop continuous GPU monitoring."""
-        if self.monitoring:
-            self.monitoring = False
-            logger.info("Stopped GPU monitoring")
-
-    def clear_cache_and_log(self, context: str = ""):
-        """Clear GPU cache and log the effect."""
-        if not self.cuda_available:
-            return
-        
-        # Log before
-        self.log_current_status(f"Before cache clear {context}".strip())
-        
-        # Clear cache
-        torch.cuda.empty_cache()
-        
-        # Small delay to let the clear take effect
-        time.sleep(1)
-        
-        # Log after
-        self.log_current_status(f"After cache clear {context}".strip())
-
-    def get_memory_summary(self) -> Dict[str, float]:
-        """Get summary of memory usage."""
-        metrics = self.get_current_metrics()
-        if not metrics:
+        """Stop the GPU monitoring thread"""
+        self.is_running = False
+        if self.monitor_thread:
+            self.monitor_thread.join(timeout=5)
+        print("GPU monitoring stopped")
+    
+    def _monitor_loop(self):
+        """Main monitoring loop"""
+        while self.is_running:
+            try:
+                metrics = self.get_current_metrics()
+                if metrics:
+                    self.metrics_history.append(metrics)
+                    
+                    # Clean old metrics (keep only last 5 minutes)
+                    cutoff_time = datetime.now() - timedelta(minutes=5)
+                    while (self.metrics_history and 
+                           self.metrics_history[0].timestamp < cutoff_time):
+                        self.metrics_history.popleft()
+                
+                time.sleep(self.update_interval)
+                
+            except Exception as e:
+                print(f"Error in monitoring loop: {e}")
+                time.sleep(self.update_interval)
+    
+    def get_metrics_history(self, minutes: int = 5) -> List[Dict[str, Any]]:
+        """Get metrics history for the last N minutes"""
+        cutoff_time = datetime.now() - timedelta(minutes=minutes)
+        return [
+            metrics.to_dict() 
+            for metrics in self.metrics_history 
+            if metrics.timestamp >= cutoff_time
+        ]
+    
+    def get_latest_metrics(self) -> Optional[Dict[str, Any]]:
+        """Get the latest metrics"""
+        if self.metrics_history:
+            return self.metrics_history[-1].to_dict()
+        return None
+    
+    def get_summary_stats(self) -> Dict[str, Any]:
+        """Get summary statistics for the current monitoring period"""
+        if not self.metrics_history:
             return {}
         
+        recent_metrics = list(self.metrics_history)
+        
+        # Calculate averages and peaks
+        gpu_utils = [m.gpu_utilization for m in recent_metrics]
+        temps = [m.temperature for m in recent_metrics]
+        powers = [m.power_usage for m in recent_metrics]
+        mem_utils = [m.memory_utilization for m in recent_metrics]
+        
         return {
-            "total_gb": metrics.total_memory_gb,
-            "used_gb": metrics.reserved_memory_gb,
-            "free_gb": metrics.free_memory_gb,
-            "utilization_pct": metrics.memory_utilization_pct,
-            "allocated_gb": metrics.allocated_memory_gb
+            'gpu_utilization': {
+                'current': recent_metrics[-1].gpu_utilization if recent_metrics else 0,
+                'average': sum(gpu_utils) / len(gpu_utils) if gpu_utils else 0,
+                'peak': max(gpu_utils) if gpu_utils else 0
+            },
+            'temperature': {
+                'current': recent_metrics[-1].temperature if recent_metrics else 0,
+                'average': sum(temps) / len(temps) if temps else 0,
+                'peak': max(temps) if temps else 0
+            },
+            'power_usage': {
+                'current': recent_metrics[-1].power_usage if recent_metrics else 0,
+                'average': sum(powers) / len(powers) if powers else 0,
+                'peak': max(powers) if powers else 0
+            },
+            'memory_utilization': {
+                'current': recent_metrics[-1].memory_utilization if recent_metrics else 0,
+                'average': sum(mem_utils) / len(mem_utils) if mem_utils else 0,
+                'peak': max(mem_utils) if mem_utils else 0
+            },
+            'gpu_name': recent_metrics[-1].gpu_name if recent_metrics else "Unknown",
+            'driver_version': recent_metrics[-1].driver_version if recent_metrics else "Unknown",
+            'monitoring_duration': len(recent_metrics),
+            'last_updated': recent_metrics[-1].timestamp.isoformat() if recent_metrics else None
         }
 
 # Global GPU monitor instance
 gpu_monitor = GPUMonitor()
 
-def log_gpu_status(context: str = ""):
-    """Convenience function to log GPU status."""
-    gpu_monitor.log_current_status(context)
+def initialize_gpu_monitoring():
+    """Initialize and start GPU monitoring"""
+    gpu_monitor.start_monitoring()
 
-def clear_gpu_cache(context: str = ""):
-    """Convenience function to clear GPU cache and log."""
-    gpu_monitor.clear_cache_and_log(context)
+def shutdown_gpu_monitoring():
+    """Shutdown GPU monitoring"""
+    gpu_monitor.stop_monitoring()
 
-def check_gpu_limits() -> Dict[str, bool]:
-    """Convenience function to check GPU limits."""
-    return gpu_monitor.check_memory_limits()
-
-def start_gpu_monitoring(interval: float = 30.0):
-    """Convenience function to start GPU monitoring."""
-    gpu_monitor.start_monitoring(interval)
-
-def stop_gpu_monitoring():
-    """Convenience function to stop GPU monitoring."""
-    gpu_monitor.stop_monitoring() 
+# Auto-start monitoring when module is imported
+if __name__ != "__main__":
+    initialize_gpu_monitoring() 

@@ -1,0 +1,144 @@
+<!-- GPU Metrics Component -->
+<div class="gpu-metrics-container">
+    <div class="gpu-metrics-header">
+        <h3>🖥️ GPU Performance Monitor</h3>
+        <div class="gpu-info">
+            <span id="gpuName" class="gpu-name">Unknown GPU</span>
+            <span id="gpuDriver" class="gpu-driver">Driver: Unknown</span>
+        </div>
+    </div>
+
+    <!-- GPU Status Cards -->
+    <div class="gpu-status-grid">
+        <div class="gpu-status-card">
+            <div class="status-header">
+                <span class="status-icon">🔥</span>
+                <span class="status-title">GPU Usage</span>
+            </div>
+            <div class="status-value">
+                <span id="gpuUsage" class="current-value">0%</span>
+                <div class="value-details">
+                    <small>Avg: <span id="gpuUsageAvg">0%</span></small>
+                    <small>Peak: <span id="gpuUsagePeak">0%</span></small>
+                </div>
+            </div>
+        </div>
+
+        <div class="gpu-status-card">
+            <div class="status-header">
+                <span class="status-icon">🧠</span>
+                <span class="status-title">Memory</span>
+            </div>
+            <div class="status-value">
+                <span id="memoryUsage" class="current-value">0%</span>
+                <div class="value-details">
+                    <small><span id="memoryUsed">0</span> / <span id="memoryTotal">0</span> MB</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="gpu-status-card">
+            <div class="status-header">
+                <span class="status-icon">🌡️</span>
+                <span class="status-title">Temperature</span>
+            </div>
+            <div class="status-value">
+                <span id="temperature" class="current-value">0°C</span>
+                <div class="value-details">
+                    <small>Avg: <span id="temperatureAvg">0°C</span></small>
+                    <small>Peak: <span id="temperaturePeak">0°C</span></small>
+                </div>
+            </div>
+        </div>
+
+        <div class="gpu-status-card">
+            <div class="status-header">
+                <span class="status-icon">⚡</span>
+                <span class="status-title">Power</span>
+            </div>
+            <div class="status-value">
+                <span id="powerUsage" class="current-value">0W</span>
+                <div class="value-details">
+                    <small>Limit: <span id="powerLimit">0W</span></small>
+                </div>
+            </div>
+        </div>
+
+        <div class="gpu-status-card">
+            <div class="status-header">
+                <span class="status-icon">💨</span>
+                <span class="status-title">Fan Speed</span>
+            </div>
+            <div class="status-value">
+                <span id="fanSpeed" class="current-value">0%</span>
+            </div>
+        </div>
+
+        <div class="gpu-status-card">
+            <div class="status-header">
+                <span class="status-icon">⚙️</span>
+                <span class="status-title">Clocks</span>
+            </div>
+            <div class="status-value">
+                <div class="clock-display">
+                    <small>Core: <span id="coreClock">0</span> MHz</small>
+                    <small>Mem: <span id="memoryClock">0</span> MHz</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GPU Charts -->
+    <div class="gpu-charts">
+        <div class="chart-container">
+            <div class="chart-header">
+                <h4>GPU Utilization (5 min)</h4>
+                <div class="chart-controls">
+                    <button id="pauseGpuBtn" class="chart-btn">⏸️ Pause</button>
+                    <button id="clearGpuBtn" class="chart-btn">🗑️ Clear</button>
+                </div>
+            </div>
+            <div class="chart-canvas-container">
+                <canvas id="gpuUtilizationChart" width="800" height="200"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div class="chart-header">
+                <h4>Memory Usage (5 min)</h4>
+            </div>
+            <div class="chart-canvas-container">
+                <canvas id="memoryUsageChart" width="800" height="200"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div class="chart-header">
+                <h4>Temperature (5 min)</h4>
+            </div>
+            <div class="chart-canvas-container">
+                <canvas id="temperatureChart" width="800" height="200"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div class="chart-header">
+                <h4>Power Usage (5 min)</h4>
+            </div>
+            <div class="chart-canvas-container">
+                <canvas id="powerChart" width="800" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- GPU Status Footer -->
+    <div class="gpu-status-footer">
+        <div class="monitoring-info">
+            <span id="lastUpdated">Last updated: Never</span>
+            <span id="monitoringDuration">Monitoring: 0 samples</span>
+        </div>
+        <div class="gpu-status-indicator">
+            <span id="gpuStatus" class="status-indicator offline">Offline</span>
+        </div>
+    </div>
+</div> 
